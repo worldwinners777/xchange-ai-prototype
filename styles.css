@@ -446,11 +446,65 @@ textarea.form-input { resize: vertical; }
   background: #fafbfd; border: 1px solid #e3e7ee; border-radius: 10px;
   padding: 10px 12px; margin-bottom: 14px;
 }
-.ocr-label { font-size: 12px; color: #6b7488; margin-bottom: 4px; }
+.ocr-label { font-size: 12px; color: #6b7488; margin-bottom: 4px; font-weight: 700; }
 .ocr-text {
   margin: 0; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
   font-size: 12px; white-space: pre-wrap; color: #2d3648;
 }
+
+/* v3.17: 実OCR用 編集可テキスト & ヘッダ & ソースバッジ & 警告 */
+.ocr-card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 6px; flex-wrap: wrap;
+}
+.ocr-source-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+.ocr-source-badge[data-source="real"]   { background: #e8f1ff; color: #0b3d91; border: 1px solid #b8d0f5; }
+.ocr-source-badge[data-source="sample"] { background: #fff1e0; color: #b35a00; border: 1px solid #f5cf9a; }
+.ocr-source-badge[data-source="memo"]   { background: #eef3eb; color: #2f6b1c; border: 1px solid #c5d8b8; }
+
+.ocr-warn-note {
+  margin: 0 0 8px; padding: 8px 10px;
+  background: #fff8e6; border: 1px solid #f3d98a; border-radius: 8px;
+  font-size: 12px; line-height: 1.55; color: #6c4a00;
+}
+.ocr-text-edit {
+  display: block; width: 100%; min-width: 0; box-sizing: border-box;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12.5px; line-height: 1.6; color: #2d3648;
+  background: #fff; border: 1px solid #d8dde6; border-radius: 8px;
+  padding: 8px 10px; resize: vertical;
+}
+.ocr-text-edit:focus { outline: 2px solid #0b3d91; outline-offset: 1px; border-color: #0b3d91; }
+
+.ocr-progress-block {
+  background: #f3f7ff; border: 1px solid #c8d6f0; border-radius: 10px;
+  padding: 10px 12px; margin: 6px 0 12px;
+}
+.ocr-progress-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 6px;
+}
+.ocr-progress-label { font-size: 12px; color: #1a1f2c; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ocr-progress-percent { font-size: 12px; color: #0b3d91; font-weight: 800; flex-shrink: 0; }
+.ocr-progress-bar {
+  height: 8px; background: #dde6f4; border-radius: 999px; overflow: hidden;
+}
+.ocr-progress-bar-fill {
+  height: 100%; background: linear-gradient(90deg, #0b3d91, #2f7ad9);
+  width: 0%; transition: width 0.25s ease;
+}
+.ocr-progress-note { font-size: 11px; color: #5a6478; margin-top: 6px; line-height: 1.5; }
+
+.ocr-mode-info {
+  font-size: 11.5px; color: #4b5365; line-height: 1.55;
+  background: #f4f6fa; border: 1px dashed #c8cfdb; border-radius: 8px;
+  padding: 7px 10px; margin: 4px 0 10px;
+}
+.ocr-mode-info strong { color: #0b3d91; }
 
 /* Categories */
 .cat-candidates { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }

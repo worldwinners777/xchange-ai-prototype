@@ -356,7 +356,7 @@
         <div class="screen-header-title">経費 レシート登録</div>
       </div>
       <div class="screen-pad">
-        <p class="biz-note">📷 レシート画像の <strong>OCR読取</strong> と <strong>AIによる経費科目分類</strong> で、入力作業を効率化します。</p>
+        <p class="biz-note">📷 レシート画像の <strong>実OCR読取</strong>（Tesseract.js / ブラウザ内処理・APIキー不要）と <strong>AIによる経費科目分類</strong> で、入力作業を効率化します。</p>
 
         <!-- 1. レシート画像 -->
         <h3 class="conf-section-title">📷 レシート画像</h3>
@@ -364,9 +364,9 @@
           <div class="upload-icon" aria-hidden="true">📷</div>
           <div class="upload-text">
             <div class="upload-title">タップして撮影 / 画像を選択</div>
-            <div class="upload-sub">JPEG / PNG（モック画像でもOK）</div>
+            <div class="upload-sub">JPEG / PNG / HEIC ・ ブラウザ内でOCR実行（画像は外部送信されません）</div>
           </div>
-          <input id="receiptInput" type="file" accept="image/*" hidden />
+          <input id="receiptInput" type="file" accept="image/*" capture="environment" hidden />
         </label>
 
         <div class="receipt-preview" id="receiptPreview" hidden>
@@ -375,13 +375,13 @@
         </div>
 
         <div class="sample-receipts">
-          <div class="sample-label">サンプルレシートから選ぶ（デモ用）</div>
+          <div class="sample-label">サンプルレシートから選ぶ（デモ用・固定OCRテキスト）</div>
           <div class="sample-grid" id="sampleReceipts"></div>
         </div>
 
         <!-- 2. 経費内容メモ -->
         <h3 class="conf-section-title">📝 経費内容メモ（任意）</h3>
-        <p class="form-sub">画像が無くても、テキスト入力だけで登録できます。</p>
+        <p class="form-sub">画像が無くても、テキスト入力だけで登録できます。OCR後に補足メモとしても利用できます。</p>
         <div class="voice-tools">
           <button class="btn ghost small" id="sampleExpenseTextBtn">📋 サンプル経費テキストを入れる</button>
           <button class="btn ghost small" id="clearExpenseTextBtn">クリア</button>
@@ -389,10 +389,24 @@
         <textarea id="expenseMemoText" class="form-input voice-textarea" rows="3"
           placeholder="例:本日、ENEOSでガソリン代5,000円を現金で支払い"></textarea>
 
-        <!-- 3. OCR結果プレビュー（OCR読取後に表示） -->
+        <!-- 3. OCR進捗バー（実OCR実行中に表示） -->
+        <div class="ocr-progress-block" id="ocrProgressBlock" hidden>
+          <div class="ocr-progress-head">
+            <span class="ocr-progress-label" id="ocrProgressLabel">OCR準備中…</span>
+            <span class="ocr-progress-percent" id="ocrProgressPercent">0%</span>
+          </div>
+          <div class="ocr-progress-bar"><div class="ocr-progress-bar-fill" id="ocrProgressBarFill" style="width:0%"></div></div>
+          <div class="ocr-progress-note">初回は日本語学習モデル（約15MB）をダウンロードします。2回目以降はブラウザキャッシュから瞬時に起動します。</div>
+        </div>
+
+        <!-- 4. OCR結果プレビュー（OCR読取後に表示・編集可） -->
         <div class="ocr-card" id="ocrPreviewCard" hidden>
-          <div class="ocr-label">🔍 OCR読取結果（プレビュー）</div>
-          <pre class="ocr-text" id="ocrPreviewText"></pre>
+          <div class="ocr-card-header">
+            <div class="ocr-label">🔍 OCR読取結果</div>
+            <span class="ocr-source-badge" id="ocrSourceBadge" data-source="real">実OCR読取</span>
+          </div>
+          <p class="ocr-warn-note">⚠ OCR読取はレシート画像の明るさ、手ブレ、文字の向き、印字の薄さにより精度が変わります。読み取り結果は登録前に必ず確認・修正してください。下のテキストは直接編集でき、編集内容に応じて項目プレビューも更新されます。</p>
+          <textarea id="ocrPreviewText" class="ocr-text-edit form-input" rows="6" lang="ja-JP" placeholder="OCRで読み取ったテキストがここに表示されます。誤読があればこのまま編集してください。"></textarea>
           <div class="ocr-fields-preview" id="ocrFieldsPreview"></div>
         </div>
 
@@ -401,7 +415,8 @@
           <div id="ocrLoadingLabel">OCRで読み取り中…</div>
         </div>
 
-        <!-- アクションバー: OCR読取 と AI分類 -->
+        <!-- アクションバー: 実OCR読取 / サンプルOCR読取 / AI分類 -->
+        <div class="ocr-mode-info">画像をアップロードした場合は <strong>実OCR読取</strong>、サンプルレシートを選んだ場合は <strong>サンプルOCR読取</strong>、画像なしでメモのみの場合は <strong>メモテキスト</strong> を読取結果として扱います。</div>
         <div class="action-bar">
           <button class="btn ghost" id="ocrReadBtn">🔍 OCR読取</button>
           <button class="btn primary big" id="aiClassifyBtn">🤖 AI分類して確認</button>
@@ -1079,6 +1094,7 @@
   <button class="link-btn" id="resetDataBtn">デモデータ初期化</button>
 </footer>
 
+<!-- v3.17: Tesseract.js (ブラウザOCR、APIキー不要) を遅延ロードする -->
 <script src="app.js"></script>
 </body>
 </html>

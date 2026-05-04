@@ -37,6 +37,23 @@
   // ===== v3: デフォルト値 =====
   const DEFAULT_STORE_NAME = "吉田自動車工業 X-Change本店";
   const DEFAULT_STAFF      = "店長";
+
+  // ===== v3.17: 実OCR (Tesseract.js) 設定 =====
+  // CDN から遅延ロード。APIキー不要・全てブラウザ内で完結。
+  const TESSERACT_CDN = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+  const TESSERACT_LANG = "jpn+eng";
+  // Tesseract の status 文字列を日本語化
+  const TESSERACT_STATUS_JA = {
+    "loading tesseract core":   "OCRエンジン読込中",
+    "initializing tesseract":   "OCRエンジン初期化中",
+    "loading language traineddata": "日本語学習モデル読込中",
+    "initializing api":         "API初期化中",
+    "initialized api":          "API初期化完了",
+    "recognizing text":         "テキスト認識中",
+    "loaded language traineddata": "日本語モデル読込完了",
+    "loading":                  "読込中",
+    "done":                     "完了"
+  };
   // ===== v3: 既知の車種マスタ（AI解析用） =====
   const CAR_MODELS = [
     "プリウス","アクア","ヴィッツ","ヤリス","カローラ","ハリアー","RAV4",
@@ -689,6 +706,13 @@
     draft.content  = text;
     draft.date     = todayKey();
 
+    // v3.17: OCRテキストから日付を抽出（YYYY/MM/DD・YYYY-MM-DD・YYYY年MM月DD日 等）
+    const dm = text.match(/(20\d{2})[\/年.\-\s]+(\d{1,2})[\/月.\-\s]+(\d{1,2})/);
+    if (dm) {
+      const y = dm[1], m = String(Math.min(12, +dm[2])).padStart(2, "0"), d = String(Math.min(31, +dm[3])).padStart(2, "0");
+      draft.date = `${y}-${m}-${d}`;
+    }
+
     // 金額: 「合計NN円」優先 → 漢数字「N万N千」 → 任意「NN円」最後
     let amount = 0;
     const goukei = text.match(/合計\s*([0-9,]+)\s*円/);
@@ -1188,7 +1212,8 @@
 
   // ================== v3.1: 経費 アップロード ==================
   // 状態: 画像 (file or sample) + メモ。OCR読取で draft を構築、AI分類で確認画面へ。
-  let _expenseUploadCtx = null; // { sample, dataUrl, fileName }
+  // v3.17: ocrSource = "real" | "sample" | "memo"  /  ocrText は実OCR/サンプル/メモのテキスト
+  let _expenseUploadCtx = null; // { sample, dataUrl, fileName, icon, ocrText, ocrSource }
   function _resetExpenseUploadUI() {
     _expenseUploadCtx = null;
     $("#receiptInput").value = "";
@@ -1196,12 +1221,98 @@
     $("#receiptPreview").hidden = true;
     $("#expenseMemoText").value = "";
     $("#ocrPreviewCard").hidden = true;
-    $("#ocrPreviewText").textContent = "";
+    const ta = $("#ocrPreviewText"); if (ta) ta.value = "";
     $("#ocrFieldsPreview").innerHTML = "";
+    hideOCRProgress();
+  }
+
+  // ===== v3.17: Tesseract.js 遅延ロード =====
+  let _tesseractPromise = null;
+  function loadTesseract() {
+    if (window.Tesseract) return Promise.resolve(window.Tesseract);
+    if (_tesseractPromise) return _tesseractPromise;
+    _tesseractPromise = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = TESSERACT_CDN;
+      s.async = true;
+      s.onload = () => {
+        if (window.Tesseract) resolve(window.Tesseract);
+        else reject(new Error("Tesseract.js のロードに失敗しました"));
+      };
+      s.onerror = () => reject(new Error("Tesseract.js CDN への接続に失敗しました（オフライン？）"));
+      document.head.appendChild(s);
+    });
+    return _tesseractPromise;
+  }
+
+  // ===== v3.17: OCR進捗バー =====
+  function showOCRProgress(label) {
+    const blk = $("#ocrProgressBlock");
+    if (!blk) return;
+    blk.hidden = false;
+    updateOCRProgress(label || "OCR準備中…", 0);
+  }
+  function updateOCRProgress(label, pct) {
+    const lbl = $("#ocrProgressLabel");
+    const per = $("#ocrProgressPercent");
+    const bar = $("#ocrProgressBarFill");
+    const v = Math.max(0, Math.min(100, Math.round((pct || 0) * 100)));
+    if (lbl) lbl.textContent = label || "処理中";
+    if (per) per.textContent = `${v}%`;
+    if (bar) bar.style.width = `${v}%`;
+  }
+  function hideOCRProgress() {
+    const blk = $("#ocrProgressBlock"); if (blk) blk.hidden = true;
+  }
+
+  // ===== v3.17: 実OCR実行（Tesseract.js） =====
+  async function runRealOCR(dataUrl) {
+    showOCRProgress("OCRエンジン読込中");
+    const Tess = await loadTesseract();
+    updateOCRProgress("OCRエンジン読込完了", 0.05);
+    const result = await Tess.recognize(dataUrl, TESSERACT_LANG, {
+      logger: (m) => {
+        const ja = TESSERACT_STATUS_JA[m.status] || m.status || "処理中";
+        // status によって 0..1 の進捗を出す
+        updateOCRProgress(ja, m.progress || 0);
+      }
+    });
+    updateOCRProgress("完了", 1);
+    setTimeout(hideOCRProgress, 600);
+    return (result && result.data && result.data.text) ? result.data.text : "";
+  }
+
+  // ===== v3.17: OCRソースバッジ更新 =====
+  function setOCRSourceBadge(source) {
+    const el = $("#ocrSourceBadge");
+    if (!el) return;
+    el.dataset.source = source;
+    el.textContent =
+      source === "real"   ? "実OCR読取" :
+      source === "sample" ? "サンプルOCR読取" :
+                            "メモテキスト";
+  }
+
+  // ===== v3.17: OCRテキスト → フィールドプレビュー再描画 =====
+  function refreshOCRFieldsPreview() {
+    const ta = $("#ocrPreviewText");
+    const text = ta ? (ta.value || "") : "";
+    const memo = ($("#expenseMemoText").value || "").trim();
+    // テキスト + メモ を結合してパース
+    const blob = [text, memo].filter(Boolean).join("\n");
+    const draft = parseExpenseText(blob || memo || text || "");
+    $("#ocrFieldsPreview").innerHTML = `
+      <div class="ofp-row"><span class="ofp-label">日付</span><span class="ofp-value">${escapeHtml(draft.date || "—")}</span></div>
+      <div class="ofp-row"><span class="ofp-label">購入先</span><span class="ofp-value">${escapeHtml(draft.vendor || "—")}</span></div>
+      <div class="ofp-row"><span class="ofp-label">金額</span><span class="ofp-value">${yen(draft.amount)}</span></div>
+      <div class="ofp-row"><span class="ofp-label">消費税</span><span class="ofp-value">${yen(draft.taxAmount)}</span></div>
+      <div class="ofp-row"><span class="ofp-label">支払方法</span><span class="ofp-value">${escapeHtml(draft.paymentMethod || "—")}</span></div>
+      <div class="ofp-row"><span class="ofp-label">内容</span><span class="ofp-value">${escapeHtml((draft.content || "").slice(0, 60) || "—")}</span></div>
+    `;
   }
 
   function setupExpenseUpload() {
-    // 画像アップロード
+    // 画像アップロード（v3.17: 実OCRはユーザーが「OCR読取」を押した時に実行）
     $("#receiptInput").addEventListener("change", (e) => {
       const file = e.target.files && e.target.files[0];
       if (!file) return;
@@ -1209,12 +1320,13 @@
       reader.onload = (ev) => {
         $("#receiptImg").src = ev.target.result;
         $("#receiptPreview").hidden = false;
-        // ユーザー画像はサンプルOCRを当てがう（モック）。アップロード自体は受け付ける。
         _expenseUploadCtx = {
           sample: null,
           dataUrl: ev.target.result,
           fileName: file.name,
-          icon: "🧾"
+          icon: "🧾",
+          ocrText: "",     // 実OCR実行後に格納
+          ocrSource: "real"
         };
         $("#ocrPreviewCard").hidden = true;
       };
@@ -1225,9 +1337,10 @@
       $("#receiptInput").value = ""; $("#receiptImg").src = "";
       $("#receiptPreview").hidden = true;
       $("#ocrPreviewCard").hidden = true;
+      hideOCRProgress();
     });
 
-    // サンプルレシート選択（タップで _expenseUploadCtx に格納）
+    // サンプルレシート選択（固定OCRテキスト・サンプルOCR読取として扱う）
     const grid = $("#sampleReceipts");
     grid.innerHTML = SAMPLE_RECEIPTS.map(r => `
       <div class="sample-card" data-sample="${r.id}">
@@ -1238,11 +1351,18 @@
     grid.querySelectorAll(".sample-card").forEach(c => {
       c.addEventListener("click", () => {
         const sample = SAMPLE_RECEIPTS.find(r => r.id === c.dataset.sample);
-        _expenseUploadCtx = { sample, dataUrl: "", fileName: sample.label, icon: sample.icon };
-        // プレビュー用のサムネ表示
+        _expenseUploadCtx = {
+          sample,
+          dataUrl: "",
+          fileName: sample.label,
+          icon: sample.icon,
+          ocrText: sample.ocrText || "",
+          ocrSource: "sample"
+        };
         $("#receiptImg").src = "";
         $("#receiptPreview").hidden = true;
         $("#ocrPreviewCard").hidden = true;
+        hideOCRProgress();
         toast(`サンプル「${sample.label}」を選択しました`);
       });
     });
@@ -1259,91 +1379,179 @@
       $("#expenseMemoText").focus();
     });
 
-    // OCR読取ボタン: 画像 or メモから OCR データ生成 → プレビュー表示
-    $("#ocrReadBtn").addEventListener("click", () => {
-      const memo = ($("#expenseMemoText").value || "").trim();
-      const hasImage = !!_expenseUploadCtx;
-      if (!hasImage && !memo) {
-        toast("レシート画像 or 経費メモを入れてください");
-        return;
+    // OCRテキスト編集 → フィールドプレビュー再描画（debounce）
+    let _ocrEditTimer = null;
+    const ocrTa = $("#ocrPreviewText");
+    if (ocrTa) {
+      ocrTa.addEventListener("input", () => {
+        clearTimeout(_ocrEditTimer);
+        _ocrEditTimer = setTimeout(() => {
+          // ctx.ocrText も同期しておく（AI分類時に使われる）
+          if (_expenseUploadCtx) _expenseUploadCtx.ocrText = ocrTa.value || "";
+          refreshOCRFieldsPreview();
+        }, 250);
+      });
+    }
+    // メモ編集中もプレビューを更新（OCRカードが表示されている場合のみ）
+    $("#expenseMemoText").addEventListener("input", () => {
+      if (!$("#ocrPreviewCard").hidden) {
+        clearTimeout(_ocrEditTimer);
+        _ocrEditTimer = setTimeout(refreshOCRFieldsPreview, 250);
       }
-      $("#ocrLoading").hidden = false;
-      $("#ocrLoadingLabel").textContent = "OCRで読み取り中…";
-      setTimeout(() => {
-        $("#ocrLoading").hidden = true;
-        const draft = _buildDraftFromUpload({ requireOnly: "ocr" });
-        // プレビュー表示
-        $("#ocrPreviewText").textContent = draft.ocrText || "(OCR結果なし)";
-        $("#ocrFieldsPreview").innerHTML = `
-          <div class="ofp-row"><span class="ofp-label">日付</span><span class="ofp-value">${escapeHtml(draft.date || "—")}</span></div>
-          <div class="ofp-row"><span class="ofp-label">購入先</span><span class="ofp-value">${escapeHtml(draft.vendor || "—")}</span></div>
-          <div class="ofp-row"><span class="ofp-label">金額</span><span class="ofp-value">${yen(draft.amount)}</span></div>
-          <div class="ofp-row"><span class="ofp-label">消費税</span><span class="ofp-value">${yen(draft.taxAmount)}</span></div>
-          <div class="ofp-row"><span class="ofp-label">支払方法</span><span class="ofp-value">${escapeHtml(draft.paymentMethod || "—")}</span></div>
-          <div class="ofp-row"><span class="ofp-label">内容</span><span class="ofp-value">${escapeHtml(draft.content || "—")}</span></div>
-        `;
-        $("#ocrPreviewCard").hidden = false;
-        toast("OCR読取が完了しました");
-      }, 1000);
     });
 
-    // AI分類して確認: OCR + AI分類 を実行 → 確認画面へ
-    $("#aiClassifyBtn").addEventListener("click", () => {
+    // OCR読取ボタン: 画像 → 実OCR / サンプル → サンプルOCR / メモのみ → メモテキスト
+    $("#ocrReadBtn").addEventListener("click", async () => {
       const memo = ($("#expenseMemoText").value || "").trim();
-      const hasImage = !!_expenseUploadCtx;
+      const ctx = _expenseUploadCtx;
+      const hasImage = !!ctx;
       if (!hasImage && !memo) {
         toast("レシート画像 or 経費メモを入れてください");
         return;
       }
+
+      // モード判定
+      let mode, srcText;
+      if (ctx && ctx.sample) {
+        mode = "sample"; srcText = ctx.ocrText || ctx.sample.ocrText || "";
+      } else if (ctx && ctx.dataUrl) {
+        mode = "real";
+      } else {
+        mode = "memo"; srcText = memo;
+      }
+
+      const ta = $("#ocrPreviewText");
+
+      if (mode === "real") {
+        // 実OCR: Tesseract.js でブラウザ内処理
+        $("#ocrReadBtn").disabled = true;
+        $("#aiClassifyBtn").disabled = true;
+        try {
+          const text = await runRealOCR(ctx.dataUrl);
+          ctx.ocrText = text || "";
+          ctx.ocrSource = "real";
+          ta.value = text || "";
+          setOCRSourceBadge("real");
+          $("#ocrPreviewCard").hidden = false;
+          refreshOCRFieldsPreview();
+          if (!text || !text.trim()) {
+            toast("OCRで文字を検出できませんでした。明るい場所で撮り直すか、メモ入力をご利用ください");
+          } else {
+            toast("実OCR読取が完了しました");
+          }
+        } catch (err) {
+          hideOCRProgress();
+          console.error("[v3.17 OCR] error:", err);
+          toast("OCR読取に失敗しました: " + (err && err.message || "不明なエラー"));
+        } finally {
+          $("#ocrReadBtn").disabled = false;
+          $("#aiClassifyBtn").disabled = false;
+        }
+      } else {
+        // サンプル or メモのみ: 即時表示
+        ta.value = srcText || "";
+        setOCRSourceBadge(mode);
+        $("#ocrPreviewCard").hidden = false;
+        refreshOCRFieldsPreview();
+        toast(mode === "sample" ? "サンプルOCR読取を表示しました" : "メモテキストをOCR結果に展開しました");
+      }
+    });
+
+    // AI分類して確認: OCRテキスト(編集後) + メモ + AI分類 を実行 → 確認画面へ
+    $("#aiClassifyBtn").addEventListener("click", async () => {
+      const memo = ($("#expenseMemoText").value || "").trim();
+      const ctx = _expenseUploadCtx;
+      const hasImage = !!ctx;
+      if (!hasImage && !memo) {
+        toast("レシート画像 or 経費メモを入れてください");
+        return;
+      }
+
+      // 画像アップ済みでまだ実OCR未実行なら、ここで実行する
+      if (ctx && ctx.dataUrl && !ctx.ocrText) {
+        $("#ocrReadBtn").disabled = true;
+        $("#aiClassifyBtn").disabled = true;
+        try {
+          const text = await runRealOCR(ctx.dataUrl);
+          ctx.ocrText = text || "";
+          ctx.ocrSource = "real";
+          $("#ocrPreviewText").value = text || "";
+          setOCRSourceBadge("real");
+          $("#ocrPreviewCard").hidden = false;
+          refreshOCRFieldsPreview();
+        } catch (err) {
+          hideOCRProgress();
+          console.error("[v3.17 OCR] error:", err);
+          toast("OCR読取に失敗したためメモのみで分類します");
+        } finally {
+          $("#ocrReadBtn").disabled = false;
+          $("#aiClassifyBtn").disabled = false;
+        }
+      }
+
+      // OCRテキストに編集が入っていればそれを優先（ctx に同期）
+      const ocrTaVal = ($("#ocrPreviewText").value || "").trim();
+      if (ctx && ocrTaVal) ctx.ocrText = ocrTaVal;
+
       $("#ocrLoading").hidden = false;
-      $("#ocrLoadingLabel").textContent = "OCR読取 → AI経費分類 中…";
+      $("#ocrLoadingLabel").textContent = "AI経費分類 中…";
       setTimeout(() => {
         $("#ocrLoading").hidden = true;
         draftExpense = _buildDraftFromUpload({ requireOnly: "full" });
         renderExpenseConfirm();
         goScreen("store-expense-confirm");
-      }, 1400);
+      }, 600);
     });
   }
 
   // 画像/サンプル + メモ から draftExpense を構築（AI分類含む）
+  // v3.17: OCRテキストエリアの内容を優先利用。実OCR/サンプルOCR/メモテキストの3系統を区別。
   function _buildDraftFromUpload(opts) {
     const memo = ($("#expenseMemoText").value || "").trim();
     const ctx = _expenseUploadCtx;
+    // OCRプレビューが表示されていればその内容を優先（ユーザー編集を尊重）
+    const ocrTa = $("#ocrPreviewText");
+    const ocrCardOpen = !$("#ocrPreviewCard").hidden;
+    const ocrEdited = ocrCardOpen && ocrTa ? (ocrTa.value || "").trim() : "";
     let draft;
 
     if (ctx && ctx.sample) {
-      // サンプルレシート選択 → サンプルOCRデータをベースに
+      // サンプルレシート選択 → サンプルOCRテキスト + ユーザー編集分でパース
       const s = ctx.sample;
-      draft = newEmptyExpenseDraft();
+      const baseText = ocrEdited || ctx.ocrText || s.ocrText || "";
+      draft = parseExpenseText(`${baseText}\n${memo}`.trim());
       draft.receiptThumb = s.icon || "🧾";
       draft.receiptDataUrl = "";
-      draft.ocrText  = s.ocrText;
-      draft.vendor   = s.vendor;
-      draft.amount   = s.amount;
-      draft.taxAmount = s.taxAmount || Math.round((s.amount || 0) * 10 / 110);
-      draft.content  = s.content || "";
-      draft.paymentMethod = s.paymentMethod || "";
-      draft.date = todayKey();
-      draft.aiCandidates = s.aiCandidates || classifyExpense(`${s.ocrText} ${memo}`);
-    } else if (ctx) {
-      // ユーザーアップロード画像 + メモ → メモから抽出（OCRはモック）
-      draft = parseExpenseText(memo || "本日の経費");
+      // OCRテキストはユーザー編集後の内容で記録
+      draft.ocrText = baseText;
+      // サンプルの確実な値で上書き（編集で値が壊れるのを防ぐ）
+      if (!draft.vendor)        draft.vendor = s.vendor || "";
+      if (!draft.amount)        draft.amount = s.amount || 0;
+      if (!draft.taxAmount)     draft.taxAmount = s.taxAmount || Math.round((s.amount || 0) * 10 / 110);
+      if (!draft.content)       draft.content = s.content || "";
+      if (!draft.paymentMethod) draft.paymentMethod = s.paymentMethod || "";
+      if (!draft.date)          draft.date = todayKey();
+      // AI分類: 編集が入っていればそれを使い、なければサンプル既定
+      draft.aiCandidates = ocrEdited
+        ? classifyExpense(`${baseText} ${memo}`)
+        : (s.aiCandidates || classifyExpense(`${s.ocrText} ${memo}`));
+    } else if (ctx && ctx.dataUrl) {
+      // 実OCR画像 + メモ → 実OCRテキスト(または編集後)で抽出
+      const baseText = ocrEdited || ctx.ocrText || "";
+      const blob = [baseText, memo].filter(Boolean).join("\n") || "本日の経費";
+      draft = parseExpenseText(blob);
       draft.receiptThumb = "🧾";
       draft.receiptDataUrl = ctx.dataUrl || "";
-      // メモ無しのアップロードでも最低限はサンプル(コメリ)で代替
-      if (!memo) {
-        const fb = SAMPLE_RECEIPTS[1];
-        draft.ocrText = fb.ocrText;
-        draft.vendor  = fb.vendor;
-        draft.amount  = fb.amount;
-        draft.taxAmount = fb.taxAmount || 0;
-        draft.content = fb.content || "";
-        draft.paymentMethod = fb.paymentMethod || "";
-        draft.aiCandidates = fb.aiCandidates;
+      // OCRテキストヘッダ
+      if (baseText) {
+        draft.ocrText = `[実OCR読取(Tesseract.js)]\n--------------------\n${baseText}`;
       } else {
-        draft.aiCandidates = classifyExpense(memo);
+        // OCRが空 → メモのみで処理
+        draft.ocrText = memo
+          ? `[メモテキスト(画像OCR結果なし)]\n--------------------\n${memo}`
+          : "[OCR結果なし]";
       }
+      draft.aiCandidates = classifyExpense(`${baseText} ${memo}`);
     } else {
       // メモのみ
       draft = parseExpenseText(memo);
