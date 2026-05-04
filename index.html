@@ -140,14 +140,15 @@
         <div class="screen-header-title">売上 音声入力</div>
       </div>
       <div class="screen-pad">
-        <!-- v3.10: スマホ標準キーボードのマイクボタンをメイン導線にする案内 -->
+        <!-- v3.11: スマホ標準キーボードの音声入力 = メイン導線 -->
         <div class="voice-mic-guide">
           <div class="vmg-line">
             <span class="vmg-icon" aria-hidden="true">📱</span>
-            <strong>スマホのキーボードにあるマイクボタン</strong> 🎤 を押して、売上内容を話してください
+            <strong>下の入力欄をタップ</strong> するとスマホのキーボードが開きます。<br>
+            キーボード内の <strong>マイクボタン 🎤</strong> を押して売上内容を話してください。
           </div>
           <div class="vmg-sub">
-            話し終わったら下の <strong>「🤖 AIで分解する」</strong> ボタンを押すと、AI が売上項目に自動分解します
+            話し終わったら 「🤖 AIで分解する」 ボタンで売上項目に自動分解します。
           </div>
         </div>
 
@@ -157,28 +158,27 @@
           <div class="vex-text">新品タイヤ4本、195/65R15、プリウス、合計48,000円、現金、廃タイヤ処分あり、バランス調整あり</div>
         </div>
 
-        <!-- メイン入力欄 (大型・タップしてキーボード起動) -->
+        <!-- メイン入力欄 (大型・タップでスマホキーボード起動) -->
         <div class="form-block">
-          <label class="form-label" for="voiceTranscript">📝 音声テキスト（タップしてキーボードのマイクで入力）</label>
+          <label class="form-label" for="voiceTranscript">📝 音声テキスト</label>
           <textarea id="voiceTranscript"
             class="form-input voice-textarea-v2"
             rows="8"
+            lang="ja-JP"
             inputmode="text"
             enterkeyhint="done"
-            autocapitalize="sentences"
-            placeholder="ここをタップ → スマホのキーボードでマイクボタンを押して話してください"></textarea>
+            autocomplete="off"
+            placeholder="ここをタップして、スマホキーボードのマイクボタンから音声入力してください"></textarea>
         </div>
 
-        <!-- 補助操作: サンプル投入 / クリア / デモ録音モック -->
-        <div class="voice-tools">
-          <button class="btn ghost small" id="sampleVoiceBtn">📋 サンプル音声を入れる</button>
-          <button class="btn ghost small" id="clearVoiceBtn">クリア</button>
-          <button class="btn ghost small" id="micBtn" aria-pressed="false">
-            <span aria-hidden="true">🎤</span>
-            <span id="micLabel">デモ録音(モック)</span>
+        <!-- 補助操作: スマホ音声入力ボタン (主) + サンプル + クリア -->
+        <div class="voice-tools voice-tools-v2">
+          <button class="btn primary" id="useKeyboardVoiceBtn" type="button">
+            📱 スマホ音声入力を使う
           </button>
+          <button class="btn ghost small" id="sampleVoiceBtn" type="button">📋 サンプル音声を入れる</button>
+          <button class="btn ghost small" id="clearVoiceBtn" type="button">クリア</button>
         </div>
-        <div class="mic-hint" id="micHint" hidden></div>
 
         <div class="ai-loading" id="salesAILoading" hidden>
           <div class="spinner"></div>

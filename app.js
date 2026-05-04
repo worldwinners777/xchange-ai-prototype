@@ -840,45 +840,39 @@
     });
   }
 
-  // ================== 売上: 音声入力 ==================
-  let isRecording = false;
-  // ================== 売上: 音声入力 (v3) ==================
-  // マイクボタン: 録音開始/停止のトグル → サンプルテキスト投入
-  // サンプル投入ボタン: ランダムにサンプルをテキストエリアへ
-  // クリアボタン: テキストエリアを空に
-  // AIで分解する: テキストエリアの内容をパース → 確認画面へ
+  // ================== 売上: 音声入力 (v3.11) ==================
+  // メイン導線: スマホ標準キーボードの音声入力ボタンを利用
+  //   1. 「📱 スマホ音声入力を使う」ボタン → textareaにフォーカス → スマホでキーボード起動
+  //   2. または 入力欄を直接タップ → 同上
+  // 補助: サンプル音声を入れる / クリア
+  // 確定: 🤖 AIで分解する → 確認画面へ
+  // ※ ブラウザ録音/Web Speech API は使用しません(API料金不要)
   function setupVoiceUI() {
-    const btn = $("#micBtn");
-    btn.addEventListener("click", () => {
-      if (!isRecording) {
-        // モック録音 開始
-        isRecording = true;
-        btn.setAttribute("aria-pressed", "true");
-        $("#micLabel").textContent = "録音停止";
-        const hint = $("#micHint");
-        hint.textContent = "🔴 モック録音中… (タップで停止)";
-        hint.hidden = false;
-      } else {
-        // モック録音 停止 → サンプル文を自動投入
-        isRecording = false;
-        btn.setAttribute("aria-pressed", "false");
-        $("#micLabel").textContent = "デモ録音(モック)";
-        $("#micHint").hidden = true;
-        const sample = VOICE_SAMPLES[Math.floor(Math.random() * VOICE_SAMPLES.length)];
-        $("#voiceTranscript").value = sample;
-        toast("デモ用サンプル音声を入力しました");
-      }
+    // 「スマホ音声入力を使う」ボタン: textareaにフォーカス→キーボード起動
+    $("#useKeyboardVoiceBtn").addEventListener("click", () => {
+      const ta = $("#voiceTranscript");
+      ta.focus();
+      // モバイルではフォーカスでキーボードが立ち上がる。textareaが画面内に入るよう微調整。
+      setTimeout(() => {
+        try { ta.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (_e) {}
+      }, 50);
     });
+
+    // サンプル音声テキスト投入
     $("#sampleVoiceBtn").addEventListener("click", () => {
       const sample = VOICE_SAMPLES[Math.floor(Math.random() * VOICE_SAMPLES.length)];
       $("#voiceTranscript").value = sample;
       $("#voiceTranscript").focus();
       toast("サンプル音声テキストを入れました");
     });
+
+    // クリア
     $("#clearVoiceBtn").addEventListener("click", () => {
       $("#voiceTranscript").value = "";
       $("#voiceTranscript").focus();
     });
+
+    // AIで分解する → 確認画面へ
     $("#parseBtn").addEventListener("click", () => {
       const text = ($("#voiceTranscript").value || "").trim();
       if (!text) {
@@ -1012,11 +1006,7 @@
       $("#doneSalesAmount").textContent = yen(rec.total);
       goScreen("store-sales-done");
       draftSale = null;
-      // 音声画面のリセット
-      isRecording = false;
-      $("#micBtn").setAttribute("aria-pressed", "false");
-      $("#micLabel").textContent = "デモ録音(モック)";
-      $("#micHint").hidden = true;
+      // 音声画面のリセット (v3.11: micBtn は廃止、textareaのみクリア)
       $("#voiceTranscript").value = "";
       renderAll();
     });
