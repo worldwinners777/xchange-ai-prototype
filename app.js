@@ -829,12 +829,13 @@
   function setHQTab(name) {
     $$(".hq-nav-item").forEach(b => b.classList.toggle("active", b.dataset.hqTab === name));
     $$(".hq-screen").forEach(s => s.classList.toggle("active", s.dataset.hqScreen === name));
-    if (name === "dashboard") renderHQDashboard();
-    if (name === "sales")     renderHQSales();
-    if (name === "expenses")  renderHQExpenses();
-    if (name === "pending")   renderHQPending();
-    if (name === "monthly")   { ensureMonthPicker(); renderMonthly(); }
-    if (name === "csv")       renderHQCSV();
+    if (name === "dashboard")     renderHQDashboard();
+    if (name === "sales")         renderHQSales();
+    if (name === "sales-report")  renderSalesReport();
+    if (name === "expenses")      renderHQExpenses();
+    if (name === "pending")       renderHQPending();
+    if (name === "monthly")       { ensureMonthPicker(); renderMonthly(); }
+    if (name === "csv")           renderHQCSV();
   }
   function ensureMonthPicker() {
     const p = $("#monthlyPicker");
@@ -846,23 +847,28 @@
     $("#greetingDate").textContent = fmtGreeting(new Date());
 
     const today = todayKey();
+    const ym = monthKey(new Date());
     const todaySales   = records.filter(r => r.type === "sale"    && isSameDay(r.createdAt, today));
     const todayExpense = records.filter(r => r.type === "expense" && isSameDay(r.createdAt, today));
-    const salesAmount   = todaySales.reduce((s,r) => s + r.total, 0);
-    const expenseAmount = todayExpense.reduce((s,r) => s + r.amount, 0);
+    const monthSales   = records.filter(r => r.type === "sale"    && isInMonth(r.createdAt, ym));
+    const salesAmount     = todaySales.reduce((s,r) => s + r.total, 0);
+    const monthSalesAmt   = monthSales.reduce((s,r) => s + r.total, 0);
+    const expenseAmount   = todayExpense.reduce((s,r) => s + r.amount, 0);
     const cost          = todayExpense.filter(isCostCategory).reduce((s,r) => s + r.amount, 0);
     const opex          = todayExpense.filter(r => !isCostCategory(r)).reduce((s,r) => s + r.amount, 0);
     const gross         = salesAmount - cost - opex;
     const pending       = records.filter(r => r.status === "未確認").length;
     const reject        = records.filter(r => r.status === "修正依頼").length;
 
-    $("#todaySalesAmount").textContent   = yen(salesAmount);
-    $("#todaySalesCount").textContent    = `${todaySales.length}件`;
-    $("#todayExpenseAmount").textContent = yen(expenseAmount);
-    $("#todayExpenseCount").textContent  = `${todayExpense.length}件`;
-    $("#todayGross").textContent         = yen(gross);
-    $("#storePending").textContent       = String(pending);
-    $("#storeReject").textContent        = String(reject);
+    $("#todaySalesAmount").textContent      = yen(salesAmount);
+    $("#todaySalesCount").textContent       = `${todaySales.length}件`;
+    $("#storeMonthSalesAmount").textContent = yen(monthSalesAmt);          // v3.16
+    $("#storeMonthSalesCount").textContent  = `${monthSales.length}件`;     // v3.16
+    $("#todayExpenseAmount").textContent    = yen(expenseAmount);
+    $("#todayExpenseCount").textContent     = `${todayExpense.length}件`;
+    $("#todayGross").textContent            = yen(gross);
+    $("#storePending").textContent          = String(pending);
+    $("#storeReject").textContent           = String(reject);
 
     $("#actionSalesSub").textContent  = `${todaySales.length}件 / ${yen(salesAmount)}`;
     $("#actionExpenseSub").textContent= `${todayExpense.length}件 / ${yen(expenseAmount)}`;
@@ -1475,6 +1481,221 @@
   }
 
   // ================== 本社: ダッシュボード (8 KPI) ==================
+  // ================== v3.16: 売上集計 (Sales Report) ==================
+  // 期間別 / 支払方法別 / 売上区分別 / 商品別 / タイヤサイズ別 + フィルタ + CSV出力
+  const SR_FILTERS = { start: "", end: "", payment: "all", category: "all", status: "all" };
+
+  function yesterdayKey() {
+    const d = new Date(); d.setDate(d.getDate() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  }
+  function firstDayOfMonth() {
+    const d = new Date(); d.setDate(1);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  }
+
+  function srApplyFilters(list) {
+    let r = list.slice();
+    if (SR_FILTERS.start) r = r.filter(x => (x.date || x.createdAt.slice(0,10)) >= SR_FILTERS.start);
+    if (SR_FILTERS.end)   r = r.filter(x => (x.date || x.createdAt.slice(0,10)) <= SR_FILTERS.end);
+    if (SR_FILTERS.payment !== "all") r = r.filter(x => x.paymentMethod === SR_FILTERS.payment);
+    if (SR_FILTERS.category !== "all") r = r.filter(x => (x.salesCategories || []).includes(SR_FILTERS.category));
+    if (SR_FILTERS.status !== "all") r = r.filter(x => x.status === SR_FILTERS.status);
+    return r;
+  }
+
+  function renderSalesReport() {
+    // フィルタの初期値: 当月
+    if (!SR_FILTERS.start && !SR_FILTERS.end) {
+      SR_FILTERS.start = firstDayOfMonth();
+      SR_FILTERS.end   = todayKey();
+    }
+    // DOM <-> state 同期
+    $("#srStart").value    = SR_FILTERS.start;
+    $("#srEnd").value      = SR_FILTERS.end;
+    $("#srPayment").value  = SR_FILTERS.payment;
+    $("#srCategory").value = SR_FILTERS.category;
+    $("#srStatus").value   = SR_FILTERS.status;
+
+    // === KPI: 期間別 (フィルタ非依存・全期間集計) ===
+    const allSales = records.filter(r => r.type === "sale");
+    const today    = todayKey();
+    const yest     = yesterdayKey();
+    const ym       = monthKey(new Date());
+    const prevYm   = lastMonthKey();
+
+    const todaySales       = allSales.filter(r => isSameDay(r.createdAt, today));
+    const yesterdaySales   = allSales.filter(r => isSameDay(r.createdAt, yest));
+    const monthSales       = allSales.filter(r => isInMonth(r.createdAt, ym));
+    const prevMonthSales   = allSales.filter(r => isInMonth(r.createdAt, prevYm));
+
+    const sum = (arr) => arr.reduce((s, r) => s + (r.total || 0), 0);
+
+    $("#srKpiToday").textContent       = yen(sum(todaySales));
+    $("#srKpiTodayCnt").textContent    = `${todaySales.length}件`;
+    $("#srKpiYesterday").textContent   = yen(sum(yesterdaySales));
+    $("#srKpiYesterdayCnt").textContent= `${yesterdaySales.length}件`;
+    $("#srKpiMonth").textContent       = yen(sum(monthSales));
+    $("#srKpiMonthCnt").textContent    = `${monthSales.length}件`;
+    $("#srKpiPrevMonth").textContent   = yen(sum(prevMonthSales));
+    $("#srKpiPrevMonthCnt").textContent= `${prevMonthSales.length}件`;
+    $("#srKpiAll").textContent         = yen(sum(allSales));
+    $("#srKpiAllCnt").textContent      = `${allSales.length}件`;
+
+    // === KPI: 件数 ===
+    $("#srKpiTodayCntOnly").textContent   = String(todaySales.length);
+    $("#srKpiMonthCntOnly").textContent   = String(monthSales.length);
+    $("#srKpiPendingOnly").textContent    = String(allSales.filter(r => r.status === "未確認").length);
+    $("#srKpiConfirmedOnly").textContent  = String(allSales.filter(r => r.status === "確認済み").length);
+
+    // === 絞り込み結果 ===
+    const filtered = srApplyFilters(allSales);
+    const filteredTotal = sum(filtered);
+    $("#srFilteredTotal").textContent = yen(filteredTotal);
+    $("#srFilteredCount").textContent = `${filtered.length}件`;
+    const periodLabel = (SR_FILTERS.start && SR_FILTERS.end)
+      ? `${SR_FILTERS.start} 〜 ${SR_FILTERS.end}`
+      : "全期間";
+    const filtersDesc = [];
+    if (SR_FILTERS.payment !== "all") filtersDesc.push(`支払=${SR_FILTERS.payment}`);
+    if (SR_FILTERS.category !== "all") filtersDesc.push(`区分=${SR_FILTERS.category}`);
+    if (SR_FILTERS.status !== "all") filtersDesc.push(`状態=${SR_FILTERS.status}`);
+    $("#srFilteredPeriod").textContent = periodLabel + (filtersDesc.length ? ` / ${filtersDesc.join(" / ")}` : "");
+
+    // === 日別売上 (絞り込み期間内) ===
+    renderSrDailyList(filtered);
+
+    // === 月別売上 (全期間) ===
+    renderSrMonthlyList(allSales);
+
+    // === カテゴリ別内訳 (絞り込み期間内) ===
+    renderBreakdown("#srByPayment",
+      aggregateBy(filtered, r => [r.paymentMethod || "(未設定)"], r => r.total));
+    renderBreakdown("#srByCategory",
+      aggregateBySalesCats(filtered));
+    renderBreakdown("#srByProduct",
+      aggregateByProduct(filtered));
+    renderBreakdown("#srByTireSize",
+      aggregateByTireSize(filtered));
+  }
+
+  function renderSrDailyList(list) {
+    const map = {};
+    list.forEach(r => {
+      const d = r.date || (r.createdAt ? r.createdAt.slice(0,10) : "—");
+      if (!map[d]) map[d] = { total: 0, count: 0 };
+      map[d].total += r.total;
+      map[d].count++;
+    });
+    const rows = Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
+    const wrap = $("#srDailyList");
+    if (!rows.length) {
+      wrap.innerHTML = `<div class="sr-period-empty">該当する売上はありません</div>`;
+      return;
+    }
+    let html = `<div class="sr-period-row sr-period-header"><span>日付</span><span class="srp-amount">金額</span><span class="srp-count">件数</span></div>`;
+    html += rows.map(([d, v]) => `
+      <div class="sr-period-row">
+        <span>${escapeHtml(d)}</span>
+        <span class="srp-amount">${yen(v.total)}</span>
+        <span class="srp-count">${v.count}件</span>
+      </div>
+    `).join("");
+    wrap.innerHTML = html;
+  }
+
+  function renderSrMonthlyList(list) {
+    const map = {};
+    list.forEach(r => {
+      const m = monthKey(new Date(r.createdAt));
+      if (!map[m]) map[m] = { total: 0, count: 0 };
+      map[m].total += r.total;
+      map[m].count++;
+    });
+    const rows = Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
+    const wrap = $("#srMonthlyList");
+    if (!rows.length) {
+      wrap.innerHTML = `<div class="sr-period-empty">月別データなし</div>`;
+      return;
+    }
+    let html = `<div class="sr-period-row sr-period-header"><span>年月</span><span class="srp-amount">金額</span><span class="srp-count">件数</span></div>`;
+    html += rows.map(([m, v]) => `
+      <div class="sr-period-row">
+        <span>${escapeHtml(m)}</span>
+        <span class="srp-amount">${yen(v.total)}</span>
+        <span class="srp-count">${v.count}件</span>
+      </div>
+    `).join("");
+    wrap.innerHTML = html;
+  }
+
+  function setupSalesReport() {
+    // フィルタ変更 → 即時反映
+    $("#srStart").addEventListener("change", e => { SR_FILTERS.start = e.target.value; renderSalesReport(); });
+    $("#srEnd").addEventListener("change",   e => { SR_FILTERS.end   = e.target.value; renderSalesReport(); });
+    $("#srPayment").addEventListener("change", e => { SR_FILTERS.payment = e.target.value; renderSalesReport(); });
+    $("#srCategory").addEventListener("change",e => { SR_FILTERS.category = e.target.value; renderSalesReport(); });
+    $("#srStatus").addEventListener("change",  e => { SR_FILTERS.status = e.target.value; renderSalesReport(); });
+    // リセット
+    $("#srResetBtn").addEventListener("click", () => {
+      SR_FILTERS.start    = firstDayOfMonth();
+      SR_FILTERS.end      = todayKey();
+      SR_FILTERS.payment  = "all";
+      SR_FILTERS.category = "all";
+      SR_FILTERS.status   = "all";
+      renderSalesReport();
+      toast("絞り込みをリセットしました（当月）");
+    });
+    // 期間CSV出力
+    $("#srExportBtn").addEventListener("click", () => {
+      exportSalesCSVByPeriod();
+    });
+    // クイックリンク
+    $("#srGoSalesBtn").addEventListener("click", () => setHQTab("sales"));
+    $("#srSetMonthBtn").addEventListener("click", () => {
+      SR_FILTERS.start = firstDayOfMonth();
+      SR_FILTERS.end   = todayKey();
+      renderSalesReport();
+      toast("当月のみで絞り込みました");
+    });
+    $("#srGoPendingBtn").addEventListener("click", () => {
+      pendingFilter = "sale";
+      setHQTab("pending");
+    });
+  }
+
+  // 期間指定のCSV出力 (売上のみ・SR_FILTERS反映)
+  function exportSalesCSVByPeriod() {
+    const head = [
+      "日付","店舗名","担当者","売上区分","商品名","タイヤサイズ",
+      "数量","単価","合計金額","支払方法","車種","車両番号",
+      "作業内容","備考","確認ステータス"
+    ];
+    const filtered = srApplyFilters(records.filter(x => x.type === "sale"))
+      .sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt));
+    const list = filtered.map(x => [
+      x.date || (x.createdAt ? x.createdAt.slice(0,10) : ""),
+      x.storeName || "",
+      x.staff || "",
+      (x.salesCategories || []).join("、"),
+      x.productName || (x.items && x.items[0] && x.items[0].name) || "",
+      x.tireSize || "",
+      x.qty || "",
+      x.unitPrice || "",
+      x.total || 0,
+      x.paymentMethod || "",
+      x.carModel || "",
+      x.carNumber || "",
+      x.workContent || "",
+      x.note || "",
+      x.status
+    ]);
+    const start = SR_FILTERS.start || "all";
+    const end   = SR_FILTERS.end   || "all";
+    downloadCSV(`xchange_sales_${start}_${end}.csv`, [head, ...list]);
+    toast(`売上CSVを出力しました (${filtered.length}件・${start}〜${end})`);
+  }
+
   function renderHQDashboard() {
     const today = todayKey();
     const ym = monthKey(new Date());
@@ -3263,6 +3484,9 @@
       renderHQExpenses();
       renderHQPending();
       renderMonthly();
+      // v3.16: 売上集計タブが表示中なら再描画
+      const sr = document.querySelector('[data-hq-screen="sales-report"]');
+      if (sr && sr.classList.contains("active")) renderSalesReport();
     }
   }
 
@@ -3356,6 +3580,7 @@
     setupImageZoomModal();
     setupCategoryChangeModal();
     setupStoreEditModal();
+    setupSalesReport();
     setRole("store");
   }
   if (document.readyState === "loading") {

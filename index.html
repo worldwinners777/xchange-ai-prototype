@@ -56,12 +56,17 @@
           <div class="rb-arrow" aria-hidden="true">›</div>
         </button>
 
-        <h2 class="section-title">本日のサマリー</h2>
-        <div class="kpi-row kpi-row-5">
+        <h2 class="section-title">本日／当月のサマリー</h2>
+        <div class="kpi-row kpi-row-5 kpi-row-6">
           <div class="kpi-mini sales">
             <div class="km-label">本日売上</div>
             <div class="km-value" id="todaySalesAmount">¥0</div>
             <div class="km-sub" id="todaySalesCount">0件</div>
+          </div>
+          <div class="kpi-mini sales">
+            <div class="km-label">当月売上</div>
+            <div class="km-value" id="storeMonthSalesAmount">¥0</div>
+            <div class="km-sub" id="storeMonthSalesCount">0件</div>
           </div>
           <div class="kpi-mini expense">
             <div class="km-label">本日経費</div>
@@ -577,6 +582,10 @@
             <span class="hni-icon" aria-hidden="true">💰</span>
             <span class="hni-label">売上一覧</span>
           </button>
+          <button class="hq-nav-item" data-hq-tab="sales-report" role="tab">
+            <span class="hni-icon" aria-hidden="true">📈</span>
+            <span class="hni-label">売上集計</span>
+          </button>
           <button class="hq-nav-item" data-hq-tab="expenses" role="tab">
             <span class="hni-icon" aria-hidden="true">💸</span>
             <span class="hni-label">経費一覧</span>
@@ -653,6 +662,146 @@
             </div>
             <p class="biz-note">📋 店長が登録した売上を本社で <strong>確認・承認</strong> します。修正が必要な場合はコメント付きで店舗へ差し戻せます。</p>
             <div id="hqSalesList" class="hq-list"></div>
+          </div>
+        </div>
+
+        <!-- v3.16: 売上集計 (期間別/支払方法別/区分別/商品別/サイズ別) -->
+        <div class="hq-screen" data-hq-screen="sales-report">
+          <div class="screen-pad">
+            <div class="hq-toolbar">
+              <h1 class="screen-title">売上集計</h1>
+              <div class="hq-page-sub">本日・当月・前月・全期間の売上を集計、CSV出力できます</div>
+            </div>
+
+            <p class="biz-note">📈 本社で <strong>当日・当月・前月・全期間</strong> の売上を集計、<strong>支払方法／売上区分／商品／タイヤサイズ</strong> 別の内訳と <strong>日別／月別</strong> の推移を確認できます。</p>
+
+            <!-- クイックリンク -->
+            <div class="sr-quick-links">
+              <button class="btn outline small" id="srGoSalesBtn" type="button">📋 売上一覧画面へ</button>
+              <button class="btn outline small" id="srSetMonthBtn" type="button">📅 当月のみで絞り込む</button>
+              <button class="btn outline small" id="srGoPendingBtn" type="button">⏳ 未確認売上一覧へ</button>
+            </div>
+
+            <!-- 売上KPI: 期間別 5枚 -->
+            <h2 class="section-title">📊 期間別 売上</h2>
+            <div class="sr-amount-row">
+              <div class="kpi"><div class="kpi-label">本日売上</div><div class="kpi-value" id="srKpiToday">¥0</div><div class="kpi-sub" id="srKpiTodayCnt">0件</div></div>
+              <div class="kpi"><div class="kpi-label">昨日売上</div><div class="kpi-value" id="srKpiYesterday">¥0</div><div class="kpi-sub" id="srKpiYesterdayCnt">0件</div></div>
+              <div class="kpi"><div class="kpi-label">当月売上</div><div class="kpi-value" id="srKpiMonth">¥0</div><div class="kpi-sub" id="srKpiMonthCnt">0件</div></div>
+              <div class="kpi"><div class="kpi-label">前月売上</div><div class="kpi-value" id="srKpiPrevMonth">¥0</div><div class="kpi-sub" id="srKpiPrevMonthCnt">0件</div></div>
+              <div class="kpi highlight"><div class="kpi-label">全期間売上合計</div><div class="kpi-value" id="srKpiAll">¥0</div><div class="kpi-sub" id="srKpiAllCnt">0件</div></div>
+            </div>
+
+            <!-- 売上件数KPI: ステータス別 -->
+            <h2 class="section-title">🔢 件数</h2>
+            <div class="sr-count-row">
+              <div class="kpi"><div class="kpi-label">本日売上件数</div><div class="kpi-value" id="srKpiTodayCntOnly">0</div></div>
+              <div class="kpi"><div class="kpi-label">当月売上件数</div><div class="kpi-value" id="srKpiMonthCntOnly">0</div></div>
+              <div class="kpi alert"><div class="kpi-label">未確認売上件数</div><div class="kpi-value" id="srKpiPendingOnly">0</div></div>
+              <div class="kpi"><div class="kpi-label">確認済み売上件数</div><div class="kpi-value" id="srKpiConfirmedOnly">0</div></div>
+            </div>
+
+            <!-- 絞り込み -->
+            <h2 class="section-title">🔍 絞り込み</h2>
+            <div class="sr-filters">
+              <div class="sr-filter-grid">
+                <div class="sr-filter-cell">
+                  <label class="form-label" for="srStart">開始日</label>
+                  <input type="date" id="srStart" class="form-input compact" />
+                </div>
+                <div class="sr-filter-cell">
+                  <label class="form-label" for="srEnd">終了日</label>
+                  <input type="date" id="srEnd" class="form-input compact" />
+                </div>
+                <div class="sr-filter-cell">
+                  <label class="form-label" for="srPayment">支払方法</label>
+                  <select id="srPayment" class="form-input compact">
+                    <option value="all">全て</option>
+                    <option value="現金">現金</option>
+                    <option value="クレジットカード">クレジットカード</option>
+                    <option value="QR決済">QR決済</option>
+                    <option value="銀行振込">銀行振込</option>
+                    <option value="売掛">売掛</option>
+                    <option value="その他">その他</option>
+                  </select>
+                </div>
+                <div class="sr-filter-cell">
+                  <label class="form-label" for="srCategory">売上区分</label>
+                  <select id="srCategory" class="form-input compact">
+                    <option value="all">全て</option>
+                    <option value="新品タイヤ販売">新品タイヤ販売</option>
+                    <option value="中古タイヤ販売">中古タイヤ販売</option>
+                    <option value="タイヤ交換工賃">タイヤ交換工賃</option>
+                    <option value="バランス調整">バランス調整</option>
+                    <option value="廃タイヤ処分料">廃タイヤ処分料</option>
+                    <option value="バルブ交換">バルブ交換</option>
+                    <option value="パンク修理">パンク修理</option>
+                    <option value="ホイール販売">ホイール販売</option>
+                    <option value="その他">その他</option>
+                  </select>
+                </div>
+                <div class="sr-filter-cell">
+                  <label class="form-label" for="srStatus">確認ステータス</label>
+                  <select id="srStatus" class="form-input compact">
+                    <option value="all">全て</option>
+                    <option value="未確認">未確認</option>
+                    <option value="確認済み">確認済み</option>
+                    <option value="修正依頼">修正依頼</option>
+                    <option value="月次処理済み">月次処理済み</option>
+                  </select>
+                </div>
+              </div>
+              <div class="sr-filter-actions">
+                <button class="btn ghost small" id="srResetBtn" type="button">🔄 リセット</button>
+                <button class="btn primary small" id="srExportBtn" type="button">📥 期間CSV出力</button>
+              </div>
+            </div>
+
+            <!-- 絞り込み結果サマリー -->
+            <div class="sr-filtered-summary">
+              <div>
+                <div class="sr-fs-label">絞り込み結果</div>
+                <div class="sr-fs-period" id="srFilteredPeriod">—</div>
+              </div>
+              <div class="sr-fs-stats">
+                <div class="sr-fs-amount" id="srFilteredTotal">¥0</div>
+                <div class="sr-fs-count" id="srFilteredCount">0件</div>
+              </div>
+            </div>
+
+            <!-- 期間別 推移 -->
+            <h2 class="section-title">📅 期間別 推移</h2>
+            <div class="sr-period-grid">
+              <div class="bd-card">
+                <div class="bd-title">日別売上 (絞り込み期間内)</div>
+                <div id="srDailyList" class="sr-period-list"></div>
+              </div>
+              <div class="bd-card">
+                <div class="bd-title">月別売上 (全期間)</div>
+                <div id="srMonthlyList" class="sr-period-list"></div>
+              </div>
+            </div>
+
+            <!-- カテゴリ別内訳 -->
+            <h2 class="section-title">🥧 カテゴリ別 内訳</h2>
+            <div class="month-breakdown-grid">
+              <div class="bd-card">
+                <div class="bd-title">支払方法別</div>
+                <div class="cat-breakdown" id="srByPayment"></div>
+              </div>
+              <div class="bd-card">
+                <div class="bd-title">売上区分別 (複数の場合は等分配分)</div>
+                <div class="cat-breakdown" id="srByCategory"></div>
+              </div>
+              <div class="bd-card">
+                <div class="bd-title">商品別 Top 10</div>
+                <div class="cat-breakdown" id="srByProduct"></div>
+              </div>
+              <div class="bd-card">
+                <div class="bd-title">タイヤサイズ別 Top 10</div>
+                <div class="cat-breakdown" id="srByTireSize"></div>
+              </div>
+            </div>
           </div>
         </div>
 

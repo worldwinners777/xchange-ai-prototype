@@ -939,6 +939,158 @@ textarea.form-input { resize: vertical; }
 }
 
 /* =============================================================
+   v3.16: 売上集計画面 (Sales Report) + 店舗ダッシュボード 6カード対応
+   ============================================================= */
+
+/* 店舗ダッシュボード: 6カード均等レイアウト (kpi-row-5 を 6カードでも使う) */
+.kpi-row-6 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+.kpi-row-6 .kpi-mini { grid-column: auto; }
+.kpi-row-6 .kpi-mini:nth-child(4),
+.kpi-row-6 .kpi-mini:nth-child(5) { grid-column: auto; }
+@media (max-width: 480px) {
+  .kpi-row-6 { grid-template-columns: 1fr 1fr; }
+}
+
+/* クイックリンク */
+.sr-quick-links {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.sr-quick-links .btn { font-size: 12px; padding: 8px 12px; }
+
+/* KPI 期間別 5カード */
+.sr-amount-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+@media (max-width: 1099px) {
+  .sr-amount-row { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 480px) {
+  .sr-amount-row { grid-template-columns: 1fr 1fr; }
+}
+
+/* KPI 件数 4カード */
+.sr-count-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+@media (max-width: 720px) {
+  .sr-count-row { grid-template-columns: 1fr 1fr; }
+}
+
+/* 絞り込みフィルタ */
+.sr-filters {
+  background: #fff;
+  border: 1px solid #e8ecf2;
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.03);
+  margin-bottom: 14px;
+}
+.sr-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px 12px;
+}
+@media (max-width: 960px) {
+  .sr-filter-grid { grid-template-columns: 1fr 1fr 1fr; }
+}
+@media (max-width: 560px) {
+  .sr-filter-grid { grid-template-columns: 1fr 1fr; }
+}
+.sr-filter-cell { display: flex; flex-direction: column; min-width: 0; }
+.sr-filter-cell .form-label { margin-bottom: 4px; font-size: 11px; }
+.sr-filter-cell .form-input { width: 100%; min-width: 0; }
+.sr-filter-actions {
+  display: flex; gap: 8px; justify-content: flex-end;
+  margin-top: 12px; flex-wrap: wrap;
+}
+
+/* 絞り込み結果サマリー */
+.sr-filtered-summary {
+  background: linear-gradient(135deg, #0b3d91, #1257c2);
+  color: #fff;
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  box-shadow: 0 4px 12px rgba(11,61,145,.25);
+}
+.sr-fs-label { font-size: 11px; opacity: .85; font-weight: 700; letter-spacing: .04em; }
+.sr-fs-period { font-size: 14px; font-weight: 800; margin-top: 2px; }
+.sr-fs-stats { text-align: right; }
+.sr-fs-amount { font-size: 28px; font-weight: 800; letter-spacing: -.02em; line-height: 1.1; }
+.sr-fs-count { font-size: 12px; opacity: .85; margin-top: 2px; }
+@media (max-width: 480px) {
+  .sr-filtered-summary { flex-direction: column; align-items: flex-start; }
+  .sr-fs-stats { text-align: left; }
+  .sr-fs-amount { font-size: 24px; }
+}
+
+/* 期間別 推移 (日別 / 月別) */
+.sr-period-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+@media (max-width: 720px) {
+  .sr-period-grid { grid-template-columns: 1fr; }
+}
+.sr-period-list {
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+.sr-period-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 0.7fr;
+  gap: 8px;
+  padding: 6px 4px;
+  font-size: 13px;
+  border-bottom: 1px dashed #eef1f6;
+  align-items: center;
+}
+.sr-period-row:last-child { border-bottom: none; }
+.sr-period-row.sr-period-header {
+  font-weight: 800;
+  color: #6b7488;
+  font-size: 11px;
+  border-bottom: 2px solid #e3e7ee;
+  letter-spacing: .04em;
+  padding: 8px 4px;
+}
+.sr-period-row .srp-amount {
+  text-align: right;
+  font-weight: 800;
+  color: #0b3d91;
+  font-variant-numeric: tabular-nums;
+}
+.sr-period-row .srp-count {
+  text-align: right;
+  color: #6b7488;
+  font-weight: 600;
+  font-size: 12px;
+}
+.sr-period-empty {
+  padding: 18px;
+  text-align: center;
+  color: #8b95a7;
+  font-size: 12px;
+}
+
+/* =============================================================
    v3.14: 売上音声入力 - おすすめの話し方ブロック (項目名形式・番号なし)
    ============================================================= */
 
