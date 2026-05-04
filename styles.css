@@ -939,6 +939,120 @@ textarea.form-input { resize: vertical; }
 }
 
 /* =============================================================
+   v3.14: 売上音声入力 - おすすめの話し方ブロック (項目名形式・番号なし)
+   ============================================================= */
+
+.voice-tips-block {
+  background: #f1f5fc;
+  border: 1px solid #c8d2e4;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.vtb-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: #0b3d91;
+  margin-bottom: 6px;
+  letter-spacing: .02em;
+}
+.vtb-desc {
+  font-size: 12px;
+  color: #2d3648;
+  line-height: 1.6;
+  margin-bottom: 10px;
+}
+.vtb-desc strong {
+  color: #0b3d91;
+  font-weight: 800;
+}
+.vtb-list {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+  background: #fff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  border: 1px solid #d8dde6;
+}
+.vtb-item {
+  font-size: 12px;
+  color: #2d3648;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.vtb-label {
+  font-weight: 800;
+  color: #0b3d91;
+  display: inline-block;
+  min-width: 92px;
+  margin-right: 4px;
+}
+.vtb-note {
+  background: #fff0ec;
+  border: 1px solid #f7c8be;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 11px;
+  color: #8a2a16;
+  font-weight: 600;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+.vtb-note strong { color: #c1271a; font-weight: 800; }
+
+@media (max-width: 480px) {
+  .voice-tips-block { padding: 12px 14px; }
+  .vtb-label { min-width: 84px; }
+  .vtb-list { padding: 8px 10px; }
+}
+
+/* =============================================================
+   v3.13: 売上確認画面 - 音声誤認識しやすい項目を強調 (要確認タグ)
+   ============================================================= */
+
+/* 通常フォームラベル横の小さな警告タグ */
+.form-warn-mini {
+  display: inline-block;
+  font-size: 10px;
+  color: #c1271a;
+  font-weight: 800;
+  margin-left: 6px;
+  background: #fde2e2;
+  padding: 2px 8px;
+  border-radius: 999px;
+  vertical-align: middle;
+  letter-spacing: .04em;
+  border: 1px solid #f7c8be;
+}
+
+/* フィールド下の注意書き (車両番号など) */
+.form-warn-note {
+  font-size: 11px;
+  color: #8a2a16;
+  background: #fff0ec;
+  border: 1px solid #f7c8be;
+  border-radius: 6px;
+  padding: 7px 10px;
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+/* 大型サマリーカード内 (青/緑グラデーション上) の警告タグ */
+.bs-warn-mini {
+  display: inline-block;
+  font-size: 10px;
+  color: #fff;
+  font-weight: 800;
+  margin-left: 6px;
+  background: rgba(255, 80, 80, 0.6);
+  padding: 1px 7px;
+  border-radius: 999px;
+  vertical-align: middle;
+  letter-spacing: .04em;
+}
+
+/* =============================================================
    v3.10: 売上音声入力 - スマホ標準キーボード マイク導線
    - 大型テキストエリア + 案内バナー + 入力例
    - 録音モック ボタンは補助機能 (小型化)

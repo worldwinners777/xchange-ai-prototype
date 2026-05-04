@@ -62,6 +62,8 @@
 
   // ===== v3: 音声サンプル（テキストのみ。AIモック解析器が項目分解する） =====
   const VOICE_SAMPLES = [
+    // v3.14: 項目名形式・改行区切り (実機スマホで音声入力した想定)
+    "売上区分、新品タイヤ販売。\n商品名、ヨコハマ アイスガード。\nタイヤサイズ、195 65 R15。\n数量、4本。\n車種、プリウス。\n車両番号、品川 300 あ 1234。\n合計金額、6万8千円。\n支払方法、現金。\n作業内容、タイヤ交換、バランス調整、廃タイヤ処分あり。\n備考、高橋様。",
     "新品タイヤ4本販売、サイズは195/65R15、車はプリウス、タイヤ代と交換工賃込みで合計48,000円、支払いは現金、廃タイヤ処分あり、バランス調整あり。",
     "ブリヂストン レグノ 215/55R17を4本、お客様は田中様、車種ヴィッツ、品川300あ12-34、合計136,000円、クレジットカード、工賃込み、廃タイヤ処分あり。",
     "中古タイヤ4本、175/65R14、アクア、佐藤様、現金で18,000円、廃タイヤ処分も込み。",
@@ -392,8 +394,8 @@
     draft.voiceTranscript = text;
     if (!text) return draft;
 
-    // タイヤサイズ: 195/65R15 / 215／55R17 等
-    const sizeMatch = text.match(/(\d{3})\s*[\/／]\s*(\d{2,3})\s*[Rｒ]\s*(\d{2})/);
+    // タイヤサイズ: 195/65R15 / 215／55R17 / 195 65 R15 (空白) / 195、65、R15 等
+    const sizeMatch = text.match(/(\d{3})\s*[\/／、,]?\s*(\d{2,3})\s*[\/／、,]?\s*[Rｒ]\s*(\d{2})/);
     if (sizeMatch) draft.tireSize = `${sizeMatch[1]}/${sizeMatch[2]}R${sizeMatch[3]}`;
 
     // 数量: "4本" / "1箇所" / "2件" / "3個" / "1台"
@@ -418,8 +420,8 @@
       if (text.includes(m)) { draft.carModel = m; break; }
     }
 
-    // 車両番号: "品川 300 あ 12-34" 形式（区切り任意）
-    const numMatch = text.match(/([一-龥]{1,3})\s*(\d{2,3})\s*([ぁ-ん])\s*(\d{1,2})\s*[-‐‑‒–—－―]\s*(\d{1,4})/);
+    // 車両番号: "品川 300 あ 12-34" / "品川 300 あ 1234"(ハイフン省略) / 空白区切り
+    const numMatch = text.match(/([一-龥]{1,3})\s*(\d{2,3})\s*([ぁ-ん])\s*(\d{1,2})\s*[-‐‑‒–—－―]?\s*(\d{1,4})/);
     if (numMatch) {
       draft.carNumber = `${numMatch[1]} ${numMatch[2]} ${numMatch[3]} ${numMatch[4]}-${numMatch[5]}`;
     }
@@ -457,7 +459,7 @@
     const catRules = [
       [/新品タイヤ|新品/, "新品タイヤ販売"],
       [/中古タイヤ|中古/, "中古タイヤ販売"],
-      [/交換工賃|工賃/, "タイヤ交換工賃"],
+      [/タイヤ交換|交換工賃|工賃/, "タイヤ交換工賃"],
       [/バランス調整|バランス/, "バランス調整"],
       [/廃タイヤ処分|廃タイヤ|タイヤ処分|処分料/, "廃タイヤ処分料"],
       [/バルブ交換|バルブ/, "バルブ交換"],
@@ -504,7 +506,126 @@
     if (/窒素ガス/.test(text)) extraWork.push("窒素ガス充填");
     draft.workContent = [...draft.salesCategories, ...extraWork].join("、");
 
+    // ===== v3.14: 構造化フィールド解析 (項目名:値 形式) を最後に上書き =====
+    //   「売上区分：新品タイヤ販売」 や 「商品名、ヨコハマ アイスガード」 など
+    //   ラベル付き入力を優先反映。ラベルなし自由文章は上記の free-form でカバー済み。
+    const structured = parseStructuredFields(text);
+    applyStructuredOverrides(draft, structured);
+
     return draft;
+  }
+
+  // ===== v3.14: 構造化フィールド解析 ==================
+  // ラベル「項目名」+ 区切り「:、,：」 + 値「次のラベル / 改行 / 「。」 まで」 を抽出
+  function parseStructuredFields(text) {
+    const labelMap = {
+      "売上区分":   "salesCategories",
+      "商品名":     "productName",
+      "タイヤサイズ": "tireSize",
+      "サイズ":     "tireSize",
+      "数量":       "qty",
+      "車種":       "carModel",
+      "車両番号":   "carNumber",
+      "ナンバー":   "carNumber",
+      "合計金額":   "total",
+      "金額":       "total",
+      "支払方法":   "paymentMethod",
+      "支払い":     "paymentMethod",
+      "支払":       "paymentMethod",
+      "作業内容":   "workContent",
+      "備考":       "note",
+      "お客様名":   "customer",
+      "お客様":     "customer"
+    };
+    // 長いラベルから先にマッチさせる (タイヤサイズ > サイズ など)
+    const labels = Object.keys(labelMap).sort((a, b) => b.length - a.length);
+    const labelAlt = labels.join("|");
+    // 値: 次のラベル/「。」/改行/末尾 まで (lazy)
+    const re = new RegExp(
+      `(${labelAlt})\\s*[:：、,]\\s*([^]*?)(?=\\s*(?:${labelAlt})\\s*[:：、,]|[。\\n]|$)`,
+      "g"
+    );
+    const result = {};
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const label = m[1];
+      const value = (m[2] || "").trim();
+      const key = labelMap[label];
+      if (!result[key] && value) result[key] = value;
+    }
+    return result;
+  }
+  // 構造化抽出結果を draft に反映 (フィールド毎に値の二次パース)
+  function applyStructuredOverrides(draft, s) {
+    if (!s) return;
+
+    if (s.tireSize) {
+      const m = s.tireSize.match(/(\d{3})\s*[\/／、,]?\s*(\d{2,3})\s*[\/／、,]?\s*[Rｒ]\s*(\d{2})/);
+      if (m) draft.tireSize = `${m[1]}/${m[2]}R${m[3]}`;
+      else draft.tireSize = s.tireSize;
+    }
+    if (s.qty) {
+      const m = s.qty.match(/(\d+)/);
+      if (m) draft.qty = Number(m[1]);
+    }
+    if (s.carModel) draft.carModel = s.carModel;
+    if (s.carNumber) {
+      const m = s.carNumber.match(/([一-龥]{1,3})\s*(\d{2,3})\s*([ぁ-ん])\s*(\d{1,2})\s*[-‐‑‒–—－―]?\s*(\d{1,4})/);
+      if (m) draft.carNumber = `${m[1]} ${m[2]} ${m[3]} ${m[4]}-${m[5]}`;
+      else draft.carNumber = s.carNumber;
+    }
+    if (s.total) {
+      let amount = 0;
+      const m = s.total.match(/([0-9,]+)/);
+      if (m) amount = Number(m[1].replace(/,/g, ""));
+      if (!amount) {
+        const k = parseKanjiYen(s.total);
+        if (k) amount = k;
+      }
+      if (amount) draft.total = amount;
+    }
+    if (s.paymentMethod) {
+      const payRules = [
+        [/売掛|掛け売り|掛売/, "売掛"],
+        [/現金/, "現金"],
+        [/(?:クレジット|VISA|JCB|AMEX|カード)/i, "クレジットカード"],
+        [/(?:QR|PayPay|ペイペイ|d払い|楽天ペイ|au\s*PAY)/i, "QR決済"],
+        [/振込|銀行/, "銀行振込"]
+      ];
+      for (const [pat, val] of payRules) {
+        if (pat.test(s.paymentMethod)) { draft.paymentMethod = val; break; }
+      }
+    }
+    if (s.salesCategories) {
+      const candidates = s.salesCategories.split(/[、,]/);
+      const matched = [];
+      for (const cand of candidates) {
+        const c = cand.trim();
+        if (!c) continue;
+        if (SALES_CATEGORIES.includes(c)) { matched.push(c); continue; }
+        if (/新品/.test(c))         matched.push("新品タイヤ販売");
+        else if (/中古/.test(c))    matched.push("中古タイヤ販売");
+        else if (/工賃|交換/.test(c)) matched.push("タイヤ交換工賃");
+        else if (/バランス/.test(c)) matched.push("バランス調整");
+        else if (/廃タイヤ|処分/.test(c)) matched.push("廃タイヤ処分料");
+        else if (/バルブ/.test(c))  matched.push("バルブ交換");
+        else if (/パンク/.test(c))  matched.push("パンク修理");
+        else if (/ホイール/.test(c)) matched.push("ホイール販売");
+        else                         matched.push("その他");
+      }
+      if (matched.length) draft.salesCategories = [...new Set(matched)];
+    }
+    if (s.productName) draft.productName = s.productName;
+    if (s.workContent) draft.workContent = s.workContent;
+    if (s.note) {
+      draft.note = s.note;
+      // 備考に「○○様」が含まれ、free-form が同じ名前を customer に入れていたらクリア
+      const ncm = s.note.match(/([一-龥ぁ-んァ-ヶー]{2,8})様/);
+      if (ncm && draft.customer === `${ncm[1]}様`) draft.customer = "";
+    }
+    if (s.customer) {
+      draft.customer = s.customer.endsWith("様") ? s.customer : `${s.customer}様`;
+    }
   }
 
   // ================== v3.1: AIモック 経費テキスト解析 ==================
@@ -864,6 +985,25 @@
       $("#voiceTranscript").value = sample;
       $("#voiceTranscript").focus();
       toast("サンプル音声テキストを入れました");
+    });
+
+    // v3.14: 入力テンプレート投入 (項目名のみのスケルトン、各項目に音声入力)
+    $("#templateVoiceBtn").addEventListener("click", () => {
+      const tmpl = [
+        "売上区分:",
+        "商品名:",
+        "タイヤサイズ:",
+        "数量:",
+        "車種:",
+        "車両番号:",
+        "合計金額:",
+        "支払方法:",
+        "作業内容:",
+        "備考:"
+      ].join("\n");
+      $("#voiceTranscript").value = tmpl;
+      $("#voiceTranscript").focus();
+      toast("テンプレートを入れました。各項目に音声入力してください");
     });
 
     // クリア

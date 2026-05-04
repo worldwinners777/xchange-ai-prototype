@@ -152,10 +152,28 @@
           </div>
         </div>
 
-        <!-- 入力例 -->
-        <div class="voice-example-block">
-          <div class="vex-label">📝 入力例</div>
-          <div class="vex-text">新品タイヤ4本、195/65R15、プリウス、合計48,000円、現金、廃タイヤ処分あり、バランス調整あり</div>
+        <!-- v3.14: おすすめの話し方 (項目名形式・番号なし) -->
+        <div class="voice-tips-block">
+          <div class="vtb-title">💡 おすすめの話し方</div>
+          <div class="vtb-desc">
+            番号を読む必要はありません。<strong>項目名に続けて、短く区切って話してください。</strong>
+            話し終わったら内容を確認し、必要に応じて手で修正してください。
+          </div>
+          <div class="vtb-list">
+            <div class="vtb-item"><span class="vtb-label">売上区分:</span>新品タイヤ販売</div>
+            <div class="vtb-item"><span class="vtb-label">商品名:</span>ヨコハマ アイスガード</div>
+            <div class="vtb-item"><span class="vtb-label">タイヤサイズ:</span>195/65R15</div>
+            <div class="vtb-item"><span class="vtb-label">数量:</span>4本</div>
+            <div class="vtb-item"><span class="vtb-label">車種:</span>プリウス</div>
+            <div class="vtb-item"><span class="vtb-label">車両番号:</span>品川300あ1234</div>
+            <div class="vtb-item"><span class="vtb-label">合計金額:</span>68,000円</div>
+            <div class="vtb-item"><span class="vtb-label">支払方法:</span>現金</div>
+            <div class="vtb-item"><span class="vtb-label">作業内容:</span>タイヤ交換、バランス調整、廃タイヤ処分あり</div>
+            <div class="vtb-item"><span class="vtb-label">備考:</span>高橋様</div>
+          </div>
+          <div class="vtb-note">
+            ⚠️ <strong>車両番号は音声認識で間違いやすいため、登録確認画面で必ず確認してください。</strong>必要に応じて手入力で修正できます。
+          </div>
         </div>
 
         <!-- メイン入力欄 (大型・タップでスマホキーボード起動) -->
@@ -163,7 +181,7 @@
           <label class="form-label" for="voiceTranscript">📝 音声テキスト</label>
           <textarea id="voiceTranscript"
             class="form-input voice-textarea-v2"
-            rows="8"
+            rows="10"
             lang="ja-JP"
             inputmode="text"
             enterkeyhint="done"
@@ -171,12 +189,13 @@
             placeholder="ここをタップして、スマホキーボードのマイクボタンから音声入力してください"></textarea>
         </div>
 
-        <!-- 補助操作: スマホ音声入力ボタン (主) + サンプル + クリア -->
+        <!-- 補助操作: スマホ音声入力 + サンプル + テンプレート + クリア -->
         <div class="voice-tools voice-tools-v2">
           <button class="btn primary" id="useKeyboardVoiceBtn" type="button">
             📱 スマホ音声入力を使う
           </button>
           <button class="btn ghost small" id="sampleVoiceBtn" type="button">📋 サンプル音声を入れる</button>
+          <button class="btn ghost small" id="templateVoiceBtn" type="button">📝 入力テンプレートを入れる</button>
           <button class="btn ghost small" id="clearVoiceBtn" type="button">クリア</button>
         </div>
 
@@ -200,13 +219,14 @@
       </div>
       <div class="screen-pad">
         <div class="ai-banner">
-          🤖 AIが分解しました。<strong>必ず内容をご確認ください。</strong>
+          🤖 音声入力の内容をAIが分解しました。<br>
+          <strong>登録前に、金額・数量・支払方法・車両番号を必ず確認してください。</strong>
         </div>
 
-        <!-- 大型サマリーカード: 合計金額・数量・単価 -->
+        <!-- 大型サマリーカード: 合計金額・数量・単価 (★ 要確認: 音声誤認識しやすい項目) -->
         <div class="big-summary">
           <div class="bs-amount-block">
-            <div class="bs-label">合計金額</div>
+            <div class="bs-label">合計金額 <span class="bs-warn-mini">⚠️ 要確認</span></div>
             <div class="bs-amount-row">
               <span class="bs-currency">¥</span>
               <input type="number" id="confTotal" class="bs-amount" inputmode="numeric" placeholder="0" />
@@ -214,18 +234,18 @@
           </div>
           <div class="bs-grid">
             <div class="bs-cell">
-              <div class="bs-label">数量</div>
+              <div class="bs-label">数量 <span class="bs-warn-mini">⚠️</span></div>
               <input type="number" id="confQty" class="bs-num" inputmode="numeric" placeholder="1" />
             </div>
             <div class="bs-cell">
-              <div class="bs-label">単価</div>
+              <div class="bs-label">単価 <span class="bs-warn-mini">⚠️</span></div>
               <input type="number" id="confUnitPrice" class="bs-num" inputmode="numeric" placeholder="0" />
             </div>
           </div>
         </div>
 
         <!-- 支払方法 -->
-        <h3 class="conf-section-title">支払方法</h3>
+        <h3 class="conf-section-title">支払方法 <span class="form-warn-mini">⚠️ 要確認</span></h3>
         <div class="payment-methods" id="paymentMethods" role="radiogroup">
           <button class="pay-btn" data-pay="現金">現金</button>
           <button class="pay-btn" data-pay="クレジットカード">カード</button>
@@ -268,8 +288,9 @@
             <input type="text" id="confCarModel" class="form-input" placeholder="例：プリウス" />
           </div>
           <div>
-            <label class="form-label">車両番号</label>
-            <input type="text" id="confCarNumber" class="form-input" placeholder="例：品川 300 あ 12-34" />
+            <label class="form-label">車両番号 <span class="form-warn-mini">⚠️ 要確認</span></label>
+            <input type="text" id="confCarNumber" class="form-input" placeholder="例：品川 300 あ 12-34（空欄でも登録可）" />
+            <div class="form-warn-note">⚠️ 車両番号は音声入力で間違いやすいため、必要に応じて手入力で修正してください。空欄のままでも登録できます。</div>
           </div>
         </div>
 
@@ -281,7 +302,7 @@
             <input type="text" id="confProductName" class="form-input" placeholder="例:ブリヂストン レグノ GR-XII" />
           </div>
           <div class="col-span-2">
-            <label class="form-label">タイヤサイズ</label>
+            <label class="form-label">タイヤサイズ <span class="form-warn-mini">⚠️ 要確認</span></label>
             <input type="text" id="confTireSize" class="form-input" placeholder="例:195/65R15" />
           </div>
         </div>
@@ -298,8 +319,8 @@
         </div>
 
         <div class="action-bar">
-          <button class="btn ghost" data-go="store-sales-voice">やり直す</button>
-          <button class="btn primary big" id="confirmSalesBtn">この内容で登録</button>
+          <button class="btn ghost" data-go="store-sales-voice">🎤 音声入力へ戻る</button>
+          <button class="btn primary big" id="confirmSalesBtn">✓ 確認して登録</button>
         </div>
       </div>
     </div>
