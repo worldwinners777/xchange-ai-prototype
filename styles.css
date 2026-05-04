@@ -784,17 +784,37 @@ textarea.form-input { resize: vertical; }
   padding: 18px 18px 16px;
   margin-bottom: 18px;
   box-shadow: 0 6px 18px rgba(11,61,145,.25);
+  /* v3.12: スマホ幅で確実に画面内に収める */
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: visible;
 }
 .big-summary .bs-label {
   font-size: 12px; opacity: .85; font-weight: 800; letter-spacing: .04em;
 }
-.bs-amount-block { margin-bottom: 14px; }
+.bs-amount-block { margin-bottom: 14px; min-width: 0; }
 .bs-amount-row {
   display: flex; align-items: center; gap: 6px; margin-top: 6px;
+  /* v3.12: 子要素 (input) が parent 内に収まるよう */
+  width: 100%;
+  max-width: 100%;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
-.bs-currency { font-size: 28px; font-weight: 800; opacity: .9; }
+.bs-currency {
+  font-size: 28px; font-weight: 800; opacity: .9;
+  /* v3.12: 通貨記号は固定サイズ、shrink しない */
+  flex: 0 0 auto;
+}
 .bs-amount {
-  flex: 1; padding: 10px 14px; border: none;
+  /* v3.12: flex 内で確実に shrink できるよう min-width: 0 を設定 */
+  flex: 1 1 0%;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 10px 14px; border: none;
   background: rgba(255,255,255,.14);
   color: #fff; font-size: 38px; font-weight: 800;
   letter-spacing: -.02em; border-radius: 12px;
@@ -806,9 +826,21 @@ textarea.form-input { resize: vertical; }
 .bs-amount::placeholder { color: rgba(255,255,255,.4); }
 .bs-amount:focus { background: rgba(255,255,255,.22); outline: none; }
 
-.bs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+/* v3.12: grid トラックを minmax(0, 1fr) にして子要素 input の intrinsic
+   サイズによるはみ出しを防ぐ */
+.bs-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+.bs-cell { min-width: 0; }
 .bs-num {
-  width: 100%; padding: 10px 12px; border: none; margin-top: 4px;
+  width: 100%;
+  /* v3.12: shrink 許可 */
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px; border: none; margin-top: 4px;
   background: rgba(255,255,255,.14);
   color: #fff; font-size: 24px; font-weight: 800;
   border-radius: 10px; text-align: right;
@@ -852,7 +884,12 @@ textarea.form-input { resize: vertical; }
 
 /* テキスト型の bs (購入先など) */
 .bs-text {
-  width: 100%; padding: 10px 12px; border: none; margin-top: 4px;
+  width: 100%;
+  /* v3.12: 子要素はみ出し防止 */
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px; border: none; margin-top: 4px;
   background: rgba(255,255,255,.14);
   color: #fff; font-size: 18px; font-weight: 800;
   border-radius: 10px;
@@ -863,12 +900,20 @@ textarea.form-input { resize: vertical; }
 
 /* 経費科目の読み取り表示（タップ不可、上の「AI分類候補」で操作） */
 .bs-cat-display {
-  width: 100%; padding: 10px 12px; margin-top: 4px;
+  width: 100%;
+  /* v3.12: 長文の科目名がはみ出さないよう */
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px; margin-top: 4px;
   background: rgba(255,255,255,.14);
   color: #fff; font-size: 18px; font-weight: 800;
   border-radius: 10px;
   min-height: 42px;
   display: flex; align-items: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* AI分類スナップショット注釈 */
@@ -1959,11 +2004,44 @@ body { max-width: 100%; }
 /* 大型サマリー (売上/経費 確認画面): モバイルでフォント縮小 */
 @media (max-width: 480px) {
   .big-summary { padding: 14px 14px 12px; }
-  .bs-amount { font-size: 28px; padding: 8px 10px; }
-  .bs-num { font-size: 18px; padding: 8px 10px; }
-  .bs-text { font-size: 16px; padding: 8px 10px; }
+  /* v3.12: スマホ幅で合計金額がはみ出さないよう shrink 許可 + フォント控えめ */
+  .bs-amount {
+    font-size: 26px;
+    padding: 8px 10px;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .bs-num {
+    font-size: 18px;
+    padding: 8px 10px;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .bs-text {
+    font-size: 16px;
+    padding: 8px 10px;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
   .bs-cat-display { font-size: 16px; padding: 8px 10px; min-height: 38px; }
-  .bs-currency { font-size: 22px; }
+  .bs-currency { font-size: 22px; flex: 0 0 auto; }
+  /* grid 子要素も shrink 許可 */
+  .bs-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  .bs-cell { min-width: 0; }
+  .bs-amount-row { flex-wrap: nowrap; min-width: 0; max-width: 100%; }
+}
+
+/* iPhone SE 等 (≤380px) ではさらに縮小 */
+@media (max-width: 380px) {
+  .bs-amount { font-size: 22px; padding: 7px 9px; }
+  .bs-num { font-size: 16px; padding: 7px 9px; }
+  .bs-currency { font-size: 18px; }
 }
 
 /* CSV出力カード: モバイル余白調整 */
