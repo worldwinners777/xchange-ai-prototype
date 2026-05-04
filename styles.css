@@ -506,6 +506,27 @@ textarea.form-input { resize: vertical; }
 }
 .ocr-mode-info strong { color: #0b3d91; }
 
+/* v3.17: 画面常時表示の OCR 利用状況チップ */
+.ocr-status-chip {
+  display: inline-block; margin: 0 0 10px;
+  font-size: 11.5px; font-weight: 800; letter-spacing: 0.02em;
+  padding: 4px 10px; border-radius: 999px; border: 1px solid;
+}
+.ocr-status-chip[data-state="idle"]    { background: #f1f3f7; color: #6b7488; border-color: #d8dde6; }
+.ocr-status-chip[data-state="real"]    { background: #e8f1ff; color: #0b3d91; border-color: #b8d0f5; }
+.ocr-status-chip[data-state="sample"]  { background: #fff1e0; color: #b35a00; border-color: #f5cf9a; }
+.ocr-status-chip[data-state="memo"]    { background: #eef3eb; color: #2f6b1c; border-color: #c5d8b8; }
+.ocr-status-chip[data-state="working"] { background: #fff8e6; color: #6c4a00; border-color: #f3d98a; }
+
+/* v3.17: 開発確認用デバッグ表示 (本番では目立たない小さなグレー) */
+.ocr-debug {
+  margin-top: 8px;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 10.5px; color: #8a92a3; line-height: 1.5;
+  background: #fafbfd; border: 1px dashed #e3e7ee; border-radius: 6px;
+  padding: 6px 8px; word-break: break-all;
+}
+
 /* Categories */
 .cat-candidates { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .cat-card {

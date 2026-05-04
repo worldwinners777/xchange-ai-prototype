@@ -357,6 +357,7 @@
       </div>
       <div class="screen-pad">
         <p class="biz-note">📷 レシート画像の <strong>実OCR読取</strong>（Tesseract.js / ブラウザ内処理・APIキー不要）と <strong>AIによる経費科目分類</strong> で、入力作業を効率化します。</p>
+        <div class="ocr-status-chip" id="ocrSourceStatus" data-state="idle">未読取</div>
 
         <!-- 1. レシート画像 -->
         <h3 class="conf-section-title">📷 レシート画像</h3>
@@ -421,6 +422,7 @@
           <button class="btn ghost" id="ocrReadBtn">🔍 OCR読取</button>
           <button class="btn primary big" id="aiClassifyBtn">🤖 AI分類して確認</button>
         </div>
+        <div class="ocr-debug" id="ocrDebug" hidden></div>
       </div>
     </div>
 

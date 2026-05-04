@@ -713,18 +713,21 @@
       draft.date = `${y}-${m}-${d}`;
     }
 
-    // 金額: 「合計NN円」優先 → 漢数字「N万N千」 → 任意「NN円」最後
+    // 金額: 優先順位 ①「総合計/合計/税込/総額/請求金額/お支払合計」キーワード近傍 → ②漢数字 → ③ 一番大きい金額
     let amount = 0;
-    const goukei = text.match(/合計\s*([0-9,]+)\s*円/);
-    if (goukei) {
-      amount = Number(goukei[1].replace(/,/g, ""));
+    const totalKey = text.match(/(?:総合計|合計|税込|総額|請求金額|お?支払(?:い)?合計)\s*[:：]?\s*[¥￥]?\s*([0-9,]+)\s*円?/);
+    if (totalKey) {
+      amount = Number(totalKey[1].replace(/,/g, ""));
     } else {
       const k = text.match(/(\d+\s*万(?:\s*\d+\s*千)?(?:\s*\d+\s*百)?(?:\s*\d+)?)\s*円?/);
       if (k) {
         amount = parseKanjiYen(k[1]) || 0;
       } else {
-        const all = [...text.matchAll(/([0-9,]{3,})\s*円/g)];
-        if (all.length) amount = Number(all[all.length - 1][1].replace(/,/g, ""));
+        // 全ての金額候補から最大値を採用 (¥1,234 / 1,234円 / 1234)
+        const cands = [];
+        for (const m of text.matchAll(/[¥￥]\s*([0-9][0-9,]{2,})/g))         cands.push(Number(m[1].replace(/,/g, "")));
+        for (const m of text.matchAll(/([0-9][0-9,]{2,})\s*円/g))             cands.push(Number(m[1].replace(/,/g, "")));
+        if (cands.length) amount = Math.max.apply(null, cands);
       }
     }
     draft.amount = amount;
@@ -745,18 +748,26 @@
       ["ブリヂストンタイヤジャパン", "ブリヂストンタイヤジャパン"],
       ["ブリヂストン", "ブリヂストン"], ["ヨコハマタイヤ", "ヨコハマタイヤ"],
       ["タイヤ卸", "タイヤ卸業者"], ["タウンワーク", "タウンワーク掲載料"],
-      ["リクルート", "リクルート"], ["産廃", "産業廃棄物処理業者"]
+      ["リクルート", "リクルート"], ["産廃", "産業廃棄物処理業者"],
+      // v3.17: コンビニ・スーパー等を追加
+      ["セブン-イレブン", "セブン-イレブン"], ["セブンイレブン", "セブン-イレブン"], ["セブン", "セブン-イレブン"],
+      ["ローソン", "ローソン"], ["ファミリーマート", "ファミリーマート"], ["ファミマ", "ファミリーマート"],
+      ["ミニストップ", "ミニストップ"], ["デイリーヤマザキ", "デイリーヤマザキ"],
+      ["イオン", "イオン"], ["ヨーカドー", "イトーヨーカドー"], ["ライフ", "ライフ"],
+      ["スターバックス", "スターバックス"], ["ドトール", "ドトール"], ["マクドナルド", "マクドナルド"]
     ];
     for (const [needle, val] of vendors) {
       if (text.includes(needle)) { draft.vendor = val; break; }
     }
 
-    // 支払方法（口座引落 / 振込 / 現金 / カードの順で判定）
+    // 支払方法（口座引落 / 振込 / カード / 現金 の順で判定）
+    // v3.17: VISA/Master/JCB/AMEX/釣銭/お預り 等を追加
     const payRules = [
       [/口座引落|引落/, "口座引落"],
       [/銀行振込|振込/, "銀行振込"],
-      [/(?:クレジット|カード|VISA|JCB|AMEX)/i, "クレジットカード"],
-      [/現金/, "現金"]
+      [/(?:クレジット|クレカ|カード|VISA|Master(?:card)?|JCB|AMEX|American\s*Express|ダイナース|UnionPay|銀聯)/i, "クレジットカード"],
+      [/QR(?:コード)?(?:決済)?|PayPay|d払い|au\s*PAY|楽天ペイ|メルペイ/i, "QR決済"],
+      [/(?:現金|釣銭|お?釣り|お?預[かりり]|お預り)/, "現金"]
     ];
     for (const [pat, val] of payRules) {
       if (pat.test(text)) { draft.paymentMethod = val; break; }
@@ -1212,7 +1223,11 @@
 
   // ================== v3.1: 経費 アップロード ==================
   // 状態: 画像 (file or sample) + メモ。OCR読取で draft を構築、AI分類で確認画面へ。
-  // v3.17: ocrSource = "real" | "sample" | "memo"  /  ocrText は実OCR/サンプル/メモのテキスト
+  // v3.17: ocrSource = "real" | "sample" | "memo" | "empty"
+  //   - "real":   ユーザーがアップロードしたレシート画像 + Tesseract.js
+  //   - "sample": サンプルカードを選択した場合のみ (固定OCRテキスト)
+  //   - "memo":   画像なし + メモ欄のみ
+  //   - "empty":  画像も読取結果もメモもない (確認画面の項目は空欄)
   let _expenseUploadCtx = null; // { sample, dataUrl, fileName, icon, ocrText, ocrSource }
   function _resetExpenseUploadUI() {
     _expenseUploadCtx = null;
@@ -1224,6 +1239,42 @@
     const ta = $("#ocrPreviewText"); if (ta) ta.value = "";
     $("#ocrFieldsPreview").innerHTML = "";
     hideOCRProgress();
+    setOCRStatusChip("idle");
+  }
+
+  // v3.17: OCR利用状況チップ (画面常時表示・実OCRかサンプルかを明示)
+  function setOCRStatusChip(state) {
+    const el = $("#ocrSourceStatus");
+    if (!el) return;
+    const map = {
+      idle:    { txt: "未読取",                klass: "idle"   },
+      real:    { txt: "実OCR結果を使用中",     klass: "real"   },
+      sample:  { txt: "サンプルOCR結果を使用中", klass: "sample" },
+      memo:    { txt: "メモテキストを使用中",   klass: "memo"   },
+      working: { txt: "OCR読取中…",            klass: "working"}
+    };
+    const cur = map[state] || map.idle;
+    el.textContent = cur.txt;
+    el.dataset.state = cur.klass;
+  }
+
+  // v3.17: 開発確認用デバッグ表示 (画面下部・小さく)
+  function logOCRDebug(source, text, draft) {
+    const lines = [
+      `OCR source: ${source}`,
+      `OCR text length: ${(text || "").length}`,
+      `detected vendor: ${draft && draft.vendor || "(none)"}`,
+      `detected total amount: ${draft && draft.amount || 0}`,
+      `detected category: ${draft && draft.aiCandidates && draft.aiCandidates[0] && draft.aiCandidates[0].cat || "(none)"}`
+    ];
+    // console
+    try { console.debug("[v3.17 OCR]", { source, len: (text||"").length, vendor: draft && draft.vendor, amount: draft && draft.amount, top: draft && draft.aiCandidates && draft.aiCandidates[0] }); } catch (_) {}
+    // 画面下部 (debug strip)
+    const dbg = $("#ocrDebug");
+    if (dbg) {
+      dbg.hidden = false;
+      dbg.textContent = lines.join(" / ");
+    }
   }
 
   // ===== v3.17: Tesseract.js 遅延ロード =====
@@ -1313,6 +1364,7 @@
 
   function setupExpenseUpload() {
     // 画像アップロード（v3.17: 実OCRはユーザーが「OCR読取」を押した時に実行）
+    // v3.17修正: 画像アップ時は前のサンプル選択状態 / OCRプレビュー / debug をクリアし、サンプル経費が混入しないようにする
     $("#receiptInput").addEventListener("change", (e) => {
       const file = e.target.files && e.target.files[0];
       if (!file) return;
@@ -1321,14 +1373,17 @@
         $("#receiptImg").src = ev.target.result;
         $("#receiptPreview").hidden = false;
         _expenseUploadCtx = {
-          sample: null,
+          sample: null,                  // ← サンプルは絶対に紐づけない
           dataUrl: ev.target.result,
           fileName: file.name,
           icon: "🧾",
-          ocrText: "",     // 実OCR実行後に格納
+          ocrText: "",                   // 実OCR実行後に格納
           ocrSource: "real"
         };
         $("#ocrPreviewCard").hidden = true;
+        const ta = $("#ocrPreviewText"); if (ta) ta.value = "";
+        const dbg = $("#ocrDebug"); if (dbg) { dbg.hidden = true; dbg.textContent = ""; }
+        setOCRStatusChip("idle");
       };
       reader.readAsDataURL(file);
     });
@@ -1337,7 +1392,10 @@
       $("#receiptInput").value = ""; $("#receiptImg").src = "";
       $("#receiptPreview").hidden = true;
       $("#ocrPreviewCard").hidden = true;
+      const ta = $("#ocrPreviewText"); if (ta) ta.value = "";
+      const dbg = $("#ocrDebug"); if (dbg) { dbg.hidden = true; dbg.textContent = ""; }
       hideOCRProgress();
+      setOCRStatusChip("idle");
     });
 
     // サンプルレシート選択（固定OCRテキスト・サンプルOCR読取として扱う）
@@ -1351,18 +1409,23 @@
     grid.querySelectorAll(".sample-card").forEach(c => {
       c.addEventListener("click", () => {
         const sample = SAMPLE_RECEIPTS.find(r => r.id === c.dataset.sample);
+        // v3.17修正: サンプル選択時は実画像 (dataUrl) とファイル選択をリセットし、混在状態を防ぐ
         _expenseUploadCtx = {
           sample,
-          dataUrl: "",
+          dataUrl: "",                  // ← 実画像は絶対に紐づけない
           fileName: sample.label,
           icon: sample.icon,
           ocrText: sample.ocrText || "",
           ocrSource: "sample"
         };
+        $("#receiptInput").value = "";
         $("#receiptImg").src = "";
         $("#receiptPreview").hidden = true;
         $("#ocrPreviewCard").hidden = true;
+        const ta = $("#ocrPreviewText"); if (ta) ta.value = "";
+        const dbg = $("#ocrDebug"); if (dbg) { dbg.hidden = true; dbg.textContent = ""; }
         hideOCRProgress();
+        setOCRStatusChip("idle");
         toast(`サンプル「${sample.label}」を選択しました`);
       });
     });
@@ -1400,96 +1463,122 @@
       }
     });
 
-    // OCR読取ボタン: 画像 → 実OCR / サンプル → サンプルOCR / メモのみ → メモテキスト
+    // OCR読取ボタン (v3.17修正: ソース別に厳密分岐。画像未アップ時はサンプルを使わず明示エラー)
+    //   - 実画像アップ済み (ctx.dataUrl) → 実OCR (Tesseract.js)
+    //   - サンプル選択済み (ctx.sample)  → サンプルOCRテキストを表示
+    //   - 画像なし + メモあり             → メモテキストをそのまま表示
+    //   - 画像なし + メモなし             → 「先にレシート画像をアップロードしてください」
     $("#ocrReadBtn").addEventListener("click", async () => {
       const memo = ($("#expenseMemoText").value || "").trim();
       const ctx = _expenseUploadCtx;
-      const hasImage = !!ctx;
-      if (!hasImage && !memo) {
-        toast("レシート画像 or 経費メモを入れてください");
+      const ta = $("#ocrPreviewText");
+
+      // ソース判定 (実画像が最優先・サンプルとは絶対に混同しない)
+      let mode;
+      if (ctx && ctx.dataUrl) {
+        mode = "real";
+      } else if (ctx && ctx.sample) {
+        mode = "sample";
+      } else if (memo) {
+        mode = "memo";
+      } else {
+        toast("先にレシート画像をアップロードしてください");
         return;
       }
-
-      // モード判定
-      let mode, srcText;
-      if (ctx && ctx.sample) {
-        mode = "sample"; srcText = ctx.ocrText || ctx.sample.ocrText || "";
-      } else if (ctx && ctx.dataUrl) {
-        mode = "real";
-      } else {
-        mode = "memo"; srcText = memo;
-      }
-
-      const ta = $("#ocrPreviewText");
 
       if (mode === "real") {
         // 実OCR: Tesseract.js でブラウザ内処理
         $("#ocrReadBtn").disabled = true;
         $("#aiClassifyBtn").disabled = true;
+        setOCRStatusChip("working");
         try {
           const text = await runRealOCR(ctx.dataUrl);
           ctx.ocrText = text || "";
           ctx.ocrSource = "real";
           ta.value = text || "";
           setOCRSourceBadge("real");
+          setOCRStatusChip("real");
           $("#ocrPreviewCard").hidden = false;
           refreshOCRFieldsPreview();
+          // デバッグ表示
+          const preview = parseExpenseText([text, memo].filter(Boolean).join("\n"));
+          preview.aiCandidates = classifyExpense(`${text} ${memo}`);
+          logOCRDebug("real", text, preview);
           if (!text || !text.trim()) {
-            toast("OCRで文字を検出できませんでした。明るい場所で撮り直すか、メモ入力をご利用ください");
+            toast("OCRで文字を検出できませんでした。明るい場所で撮り直してください");
           } else {
             toast("実OCR読取が完了しました");
           }
         } catch (err) {
           hideOCRProgress();
+          setOCRStatusChip("idle");
           console.error("[v3.17 OCR] error:", err);
           toast("OCR読取に失敗しました: " + (err && err.message || "不明なエラー"));
         } finally {
           $("#ocrReadBtn").disabled = false;
           $("#aiClassifyBtn").disabled = false;
         }
-      } else {
-        // サンプル or メモのみ: 即時表示
-        ta.value = srcText || "";
-        setOCRSourceBadge(mode);
+      } else if (mode === "sample") {
+        // サンプル: 固定OCRテキストをそのまま表示 (実OCRは絶対に走らせない)
+        const sampleText = ctx.ocrText || ctx.sample.ocrText || "";
+        ta.value = sampleText;
+        setOCRSourceBadge("sample");
+        setOCRStatusChip("sample");
         $("#ocrPreviewCard").hidden = false;
         refreshOCRFieldsPreview();
-        toast(mode === "sample" ? "サンプルOCR読取を表示しました" : "メモテキストをOCR結果に展開しました");
+        const dbgDraft = parseExpenseText([sampleText, memo].filter(Boolean).join("\n"));
+        dbgDraft.aiCandidates = ctx.sample.aiCandidates || classifyExpense(`${sampleText} ${memo}`);
+        logOCRDebug("sample", sampleText, dbgDraft);
+        toast("サンプルOCR読取を表示しました");
+      } else {
+        // メモのみ
+        ta.value = memo;
+        setOCRSourceBadge("memo");
+        setOCRStatusChip("memo");
+        $("#ocrPreviewCard").hidden = false;
+        refreshOCRFieldsPreview();
+        const dbgDraft = parseExpenseText(memo);
+        dbgDraft.aiCandidates = classifyExpense(memo);
+        logOCRDebug("memo", memo, dbgDraft);
+        toast("メモテキストをOCR結果に展開しました");
       }
     });
 
-    // AI分類して確認: OCRテキスト(編集後) + メモ + AI分類 を実行 → 確認画面へ
+    // AI分類して確認 (v3.17修正: 画像アップ時は必ず実OCR結果のみで分類。サンプルは混入させない)
     $("#aiClassifyBtn").addEventListener("click", async () => {
       const memo = ($("#expenseMemoText").value || "").trim();
       const ctx = _expenseUploadCtx;
-      const hasImage = !!ctx;
-      if (!hasImage && !memo) {
+      if (!ctx && !memo) {
         toast("レシート画像 or 経費メモを入れてください");
         return;
       }
 
-      // 画像アップ済みでまだ実OCR未実行なら、ここで実行する
+      // 画像アップ済みでまだ実OCR未実行なら、ここで実行する (絶対にサンプルにフォールバックしない)
       if (ctx && ctx.dataUrl && !ctx.ocrText) {
         $("#ocrReadBtn").disabled = true;
         $("#aiClassifyBtn").disabled = true;
+        setOCRStatusChip("working");
         try {
           const text = await runRealOCR(ctx.dataUrl);
           ctx.ocrText = text || "";
           ctx.ocrSource = "real";
           $("#ocrPreviewText").value = text || "";
           setOCRSourceBadge("real");
+          setOCRStatusChip("real");
           $("#ocrPreviewCard").hidden = false;
           refreshOCRFieldsPreview();
         } catch (err) {
           hideOCRProgress();
+          setOCRStatusChip("idle");
           console.error("[v3.17 OCR] error:", err);
-          toast("OCR読取に失敗したためメモのみで分類します");
+          toast("OCR読取に失敗しました。読取結果なしで確認画面へ進みます");
         } finally {
           $("#ocrReadBtn").disabled = false;
           $("#aiClassifyBtn").disabled = false;
         }
       }
 
-      // OCRテキストに編集が入っていればそれを優先（ctx に同期）
+      // OCRテキストに編集が入っていればそれを優先 (ctx に同期)
       const ocrTaVal = ($("#ocrPreviewText").value || "").trim();
       if (ctx && ocrTaVal) ctx.ocrText = ocrTaVal;
 
@@ -1498,73 +1587,97 @@
       setTimeout(() => {
         $("#ocrLoading").hidden = true;
         draftExpense = _buildDraftFromUpload({ requireOnly: "full" });
+        // 確認画面進入直前のデバッグログ
+        logOCRDebug(draftExpense.ocrSource || "unknown", ocrTaVal || (ctx && ctx.ocrText) || memo, draftExpense);
         renderExpenseConfirm();
         goScreen("store-expense-confirm");
       }, 600);
     });
   }
 
-  // 画像/サンプル + メモ から draftExpense を構築（AI分類含む）
-  // v3.17: OCRテキストエリアの内容を優先利用。実OCR/サンプルOCR/メモテキストの3系統を区別。
+  // v3.17修正: ソース別に厳密分岐。
+  //   1. ctx.dataUrl(実画像) があれば必ず "real" 系統 (絶対にサンプルへフォールバックしない)
+  //   2. ctx.sample があり ctx.dataUrl が無い時のみ "sample" 系統
+  //   3. 画像なし + メモのみ → "memo"
+  //   4. 何もない → "empty" (項目は空欄。サンプルで埋めない)
+  // AI分類の優先順位:
+  //   ① 手動修正済み OCRテキスト ② 実OCR/サンプルOCR テキスト ③ メモ ④ (サンプル選択時のみ)サンプルの aiCandidates 既定値
   function _buildDraftFromUpload(opts) {
     const memo = ($("#expenseMemoText").value || "").trim();
     const ctx = _expenseUploadCtx;
-    // OCRプレビューが表示されていればその内容を優先（ユーザー編集を尊重）
     const ocrTa = $("#ocrPreviewText");
     const ocrCardOpen = !$("#ocrPreviewCard").hidden;
     const ocrEdited = ocrCardOpen && ocrTa ? (ocrTa.value || "").trim() : "";
     let draft;
+    let source;
 
-    if (ctx && ctx.sample) {
-      // サンプルレシート選択 → サンプルOCRテキスト + ユーザー編集分でパース
+    if (ctx && ctx.dataUrl) {
+      // === 実OCR系統 (実画像アップ済み) ===
+      source = "real";
+      // 優先: ① 手動修正済みOCR (ocrEdited) ② 実OCR結果 (ctx.ocrText) — サンプルは絶対に使わない
+      const baseText = ocrEdited || ctx.ocrText || "";
+      const blob = [baseText, memo].filter(Boolean).join("\n");
+      // baseText/memo どちらも空でも parseExpenseText に空文字を渡し、項目は空欄のままにする (サンプルで埋めない)
+      draft = parseExpenseText(blob);
+      draft.receiptThumb = "🧾";
+      draft.receiptDataUrl = ctx.dataUrl;
+      if (baseText) {
+        draft.ocrText = `[実OCR読取 (Tesseract.js)]\n--------------------\n${baseText}`;
+      } else if (memo) {
+        draft.ocrText = `[メモテキスト (画像OCR結果なし)]\n--------------------\n${memo}`;
+      } else {
+        draft.ocrText = "[OCR結果なし]";
+      }
+      draft.aiCandidates = classifyExpense(`${baseText} ${memo}`);
+    } else if (ctx && ctx.sample) {
+      // === サンプル系統 (サンプルカード選択時のみ) ===
+      source = "sample";
       const s = ctx.sample;
       const baseText = ocrEdited || ctx.ocrText || s.ocrText || "";
       draft = parseExpenseText(`${baseText}\n${memo}`.trim());
       draft.receiptThumb = s.icon || "🧾";
       draft.receiptDataUrl = "";
-      // OCRテキストはユーザー編集後の内容で記録
-      draft.ocrText = baseText;
-      // サンプルの確実な値で上書き（編集で値が壊れるのを防ぐ）
+      draft.ocrText = `[サンプルOCR読取]\n--------------------\n${baseText}`;
+      // サンプル既定値で空欄のみ補完 (編集で値が壊れるのを防ぐ)
       if (!draft.vendor)        draft.vendor = s.vendor || "";
       if (!draft.amount)        draft.amount = s.amount || 0;
       if (!draft.taxAmount)     draft.taxAmount = s.taxAmount || Math.round((s.amount || 0) * 10 / 110);
       if (!draft.content)       draft.content = s.content || "";
       if (!draft.paymentMethod) draft.paymentMethod = s.paymentMethod || "";
       if (!draft.date)          draft.date = todayKey();
-      // AI分類: 編集が入っていればそれを使い、なければサンプル既定
+      // AI分類: 編集ありならテキストから再分類、なければサンプルの既定値
       draft.aiCandidates = ocrEdited
         ? classifyExpense(`${baseText} ${memo}`)
         : (s.aiCandidates || classifyExpense(`${s.ocrText} ${memo}`));
-    } else if (ctx && ctx.dataUrl) {
-      // 実OCR画像 + メモ → 実OCRテキスト(または編集後)で抽出
-      const baseText = ocrEdited || ctx.ocrText || "";
-      const blob = [baseText, memo].filter(Boolean).join("\n") || "本日の経費";
-      draft = parseExpenseText(blob);
-      draft.receiptThumb = "🧾";
-      draft.receiptDataUrl = ctx.dataUrl || "";
-      // OCRテキストヘッダ
-      if (baseText) {
-        draft.ocrText = `[実OCR読取(Tesseract.js)]\n--------------------\n${baseText}`;
-      } else {
-        // OCRが空 → メモのみで処理
-        draft.ocrText = memo
-          ? `[メモテキスト(画像OCR結果なし)]\n--------------------\n${memo}`
-          : "[OCR結果なし]";
-      }
-      draft.aiCandidates = classifyExpense(`${baseText} ${memo}`);
-    } else {
-      // メモのみ
-      draft = parseExpenseText(memo);
+    } else if (memo || ocrEdited) {
+      // === メモのみ系統 (画像なし) ===
+      source = "memo";
+      const baseText = ocrEdited || memo;
+      draft = parseExpenseText(baseText);
       draft.receiptThumb = "📝";
       draft.receiptDataUrl = "";
-      draft.aiCandidates = classifyExpense(memo);
+      draft.aiCandidates = classifyExpense(baseText);
+    } else {
+      // === 空 (画像もメモもない) === サンプル経費で埋めない
+      source = "empty";
+      draft = newEmptyExpenseDraft();
+      draft.receiptThumb = "📝";
+      draft.receiptDataUrl = "";
+      draft.aiCandidates = classifyExpense("");
     }
 
-    // AI分類スナップショット & 初期選択
+    draft.ocrSource = source; // 確認画面・詳細モーダル等で参照可能なフラグ
+
+    // AI分類スナップショット & 初期選択 (空でも雑費を埋め込まない: source==="empty"の時はカテゴリも空)
     if (opts && opts.requireOnly === "full") {
-      const top = (draft.aiCandidates && draft.aiCandidates[0]) || { cat: "雑費" };
-      draft.aiCategory = top.cat;
-      draft.category   = top.cat;
+      const topCat = draft.aiCandidates && draft.aiCandidates[0] && draft.aiCandidates[0].cat;
+      if (source === "empty") {
+        draft.aiCategory = "";
+        draft.category   = "";
+      } else {
+        draft.aiCategory = topCat || "雑費";
+        draft.category   = topCat || "雑費";
+      }
     }
     return draft;
   }
