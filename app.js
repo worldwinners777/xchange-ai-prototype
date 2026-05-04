@@ -851,18 +851,22 @@
     const btn = $("#micBtn");
     btn.addEventListener("click", () => {
       if (!isRecording) {
+        // モック録音 開始
         isRecording = true;
         btn.setAttribute("aria-pressed", "true");
         $("#micLabel").textContent = "録音停止";
-        $("#micHint").textContent = "話し終わったらタップ（モック録音中）";
+        const hint = $("#micHint");
+        hint.textContent = "🔴 モック録音中… (タップで停止)";
+        hint.hidden = false;
       } else {
+        // モック録音 停止 → サンプル文を自動投入
         isRecording = false;
         btn.setAttribute("aria-pressed", "false");
-        $("#micLabel").textContent = "録音開始";
-        $("#micHint").textContent = "音声をテキストに変換しました";
-        // モック: 録音停止でランダムなサンプルをテキストエリアに自動投入
+        $("#micLabel").textContent = "デモ録音(モック)";
+        $("#micHint").hidden = true;
         const sample = VOICE_SAMPLES[Math.floor(Math.random() * VOICE_SAMPLES.length)];
         $("#voiceTranscript").value = sample;
+        toast("デモ用サンプル音声を入力しました");
       }
     });
     $("#sampleVoiceBtn").addEventListener("click", () => {
@@ -1011,8 +1015,8 @@
       // 音声画面のリセット
       isRecording = false;
       $("#micBtn").setAttribute("aria-pressed", "false");
-      $("#micLabel").textContent = "録音開始";
-      $("#micHint").textContent = "タップして録音開始";
+      $("#micLabel").textContent = "デモ録音(モック)";
+      $("#micHint").hidden = true;
       $("#voiceTranscript").value = "";
       renderAll();
     });
@@ -1487,7 +1491,7 @@
     })[p] || p || "—";
   }
 
-  // ===== v3.4: 売上テーブル行 =====
+  // ===== v3.4: 売上テーブル行 (v3.9: data-label でモバイルカード表示対応) =====
   function hqSalesRow(r) {
     const date = r.date || (r.createdAt ? new Date(r.createdAt).toISOString().slice(0, 10) : "—");
     const cats = (r.salesCategories && r.salesCategories.length) ? r.salesCategories.join("、") : "—";
@@ -1496,22 +1500,22 @@
     const pay = shortPay(r.paymentMethod);
     return `
       <tr data-id="${r.id}" class="${isLocked(r) ? "row-locked" : ""}">
-        <td title="${escapeHtml(date)}">${escapeHtml(date)}</td>
-        <td title="${escapeHtml(r.storeName || "—")}">${escapeHtml(r.storeName || "—")}</td>
-        <td title="${escapeHtml(cats)}">${escapeHtml(cats)}</td>
-        <td title="${escapeHtml(product)}">${escapeHtml(product)}</td>
-        <td title="${escapeHtml(r.tireSize || "—")}">${escapeHtml(r.tireSize || "—")}</td>
-        <td class="num">${qty || "—"}</td>
-        <td class="num amount" title="${yen(r.total)}">${yen(r.total)}</td>
-        <td title="${escapeHtml(r.paymentMethod || "—")}">${escapeHtml(pay)}</td>
-        <td title="${escapeHtml(r.staff || "—")}">${escapeHtml(r.staff || "—")}</td>
-        <td class="status">${statusPill(r.status)}</td>
-        <td class="center">${buildRowActions(r, false)}</td>
+        <td data-label="日付" title="${escapeHtml(date)}">${escapeHtml(date)}</td>
+        <td data-label="店舗" title="${escapeHtml(r.storeName || "—")}">${escapeHtml(r.storeName || "—")}</td>
+        <td data-label="売上区分" title="${escapeHtml(cats)}">${escapeHtml(cats)}</td>
+        <td data-label="商品名" title="${escapeHtml(product)}">${escapeHtml(product)}</td>
+        <td data-label="サイズ" title="${escapeHtml(r.tireSize || "—")}">${escapeHtml(r.tireSize || "—")}</td>
+        <td class="num" data-label="数量">${qty || "—"}</td>
+        <td class="num amount" data-label="合計" title="${yen(r.total)}">${yen(r.total)}</td>
+        <td data-label="支払" title="${escapeHtml(r.paymentMethod || "—")}">${escapeHtml(pay)}</td>
+        <td data-label="担当" title="${escapeHtml(r.staff || "—")}">${escapeHtml(r.staff || "—")}</td>
+        <td class="status" data-label="ステータス">${statusPill(r.status)}</td>
+        <td class="center actions">${buildRowActions(r, false)}</td>
       </tr>
     `;
   }
 
-  // ===== v3.4: 経費テーブル行 =====
+  // ===== v3.4: 経費テーブル行 (v3.9: data-label でモバイルカード表示対応) =====
   function hqExpenseRow(r) {
     const date = r.date || (r.createdAt ? new Date(r.createdAt).toISOString().slice(0, 10) : "—");
     const aiCat = r.aiCategory || r.category || "—";
@@ -1521,17 +1525,17 @@
     const pay = shortPay(r.paymentMethod);
     return `
       <tr data-id="${r.id}" class="${isLocked(r) ? "row-locked" : ""}">
-        <td title="${escapeHtml(date)}">${escapeHtml(date)}</td>
-        <td title="${escapeHtml(r.storeName || "—")}">${escapeHtml(r.storeName || "—")}</td>
-        <td title="${escapeHtml(r.vendor || "—")}">${escapeHtml(r.vendor || "—")}</td>
-        <td title="${escapeHtml(r.content || "—")}">${escapeHtml(r.content || "—")}</td>
-        <td class="num amount expense" title="${yen(r.amount)}">${yen(r.amount)}</td>
-        <td title="${escapeHtml(aiCat)}">${escapeHtml(aiCat)}</td>
-        <td class="${finalClass}" title="${escapeHtml(finalCat)}">${escapeHtml(finalCat)}</td>
-        <td title="${escapeHtml(r.paymentMethod || "—")}">${escapeHtml(pay)}</td>
-        <td class="status">${statusPill(r.status)}</td>
-        <td class="center">${buildRowReceiptThumb(r)}</td>
-        <td class="center">${buildRowActions(r, true)}</td>
+        <td data-label="日付" title="${escapeHtml(date)}">${escapeHtml(date)}</td>
+        <td data-label="店舗" title="${escapeHtml(r.storeName || "—")}">${escapeHtml(r.storeName || "—")}</td>
+        <td data-label="購入先" title="${escapeHtml(r.vendor || "—")}">${escapeHtml(r.vendor || "—")}</td>
+        <td data-label="内容" title="${escapeHtml(r.content || "—")}">${escapeHtml(r.content || "—")}</td>
+        <td class="num amount expense" data-label="金額" title="${yen(r.amount)}">${yen(r.amount)}</td>
+        <td data-label="AI分類" title="${escapeHtml(aiCat)}">${escapeHtml(aiCat)}</td>
+        <td class="${finalClass}" data-label="本社確定" title="${escapeHtml(finalCat)}">${escapeHtml(finalCat)}</td>
+        <td data-label="支払" title="${escapeHtml(r.paymentMethod || "—")}">${escapeHtml(pay)}</td>
+        <td class="status" data-label="ステータス">${statusPill(r.status)}</td>
+        <td class="center" data-label="レシート">${buildRowReceiptThumb(r)}</td>
+        <td class="center actions">${buildRowActions(r, true)}</td>
       </tr>
     `;
   }

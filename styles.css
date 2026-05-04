@@ -894,6 +894,99 @@ textarea.form-input { resize: vertical; }
 }
 
 /* =============================================================
+   v3.10: 売上音声入力 - スマホ標準キーボード マイク導線
+   - 大型テキストエリア + 案内バナー + 入力例
+   - 録音モック ボタンは補助機能 (小型化)
+   - 外部音声APIは使わず、スマホ標準キーボードの音声入力を活用
+   ============================================================= */
+
+/* メイン案内: スマホキーボードのマイクボタン使用方法 */
+.voice-mic-guide {
+  background: linear-gradient(135deg, #fff8e0, #fff4d6);
+  border: 1px solid #ffd97a;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: #6e530b;
+  line-height: 1.55;
+}
+.voice-mic-guide .vmg-line { font-weight: 700; }
+.voice-mic-guide .vmg-icon { font-size: 16px; margin-right: 4px; }
+.voice-mic-guide strong { color: #8a6a00; font-weight: 800; }
+.voice-mic-guide .vmg-sub {
+  font-size: 12px; margin-top: 6px;
+  color: #8a6a00; font-weight: 600;
+  opacity: 0.9;
+}
+
+/* 入力例ブロック */
+.voice-example-block {
+  background: #fafbfd;
+  border: 1px dashed #c8d2e4;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.voice-example-block .vex-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: #6b7488;
+  letter-spacing: .04em;
+  margin-bottom: 6px;
+}
+.voice-example-block .vex-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2d3648;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+/* 大型テキストエリア v2 (タップしやすく、スマホキーボード起動向き) */
+.voice-textarea-v2 {
+  font-size: 16px;             /* 16px+ で iOS Safari の自動ズームを防止 */
+  line-height: 1.7;
+  min-height: 180px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 2px solid #d8dde6;
+  background: #fff;
+  width: 100%;
+  resize: vertical;
+  -webkit-appearance: none;
+  appearance: none;
+  font-family: inherit;
+}
+.voice-textarea-v2:focus {
+  border-color: #1257c2;
+  box-shadow: 0 0 0 4px rgba(18, 87, 194, 0.12);
+  outline: none;
+  background: #fff;
+}
+.voice-textarea-v2::placeholder {
+  color: #8b95a7;
+  font-weight: 500;
+  line-height: 1.6;
+}
+
+@media (max-width: 480px) {
+  .voice-textarea-v2 { min-height: 200px; }
+  .voice-mic-guide { padding: 12px 14px; font-size: 13px; }
+  .voice-example-block { padding: 10px 12px; }
+  .voice-example-block .vex-text { font-size: 12px; }
+}
+
+/* mic-hint: 録音モック中に小さく表示 */
+.mic-hint {
+  text-align: center;
+  font-size: 12px;
+  color: #c1271a;
+  font-weight: 700;
+  margin: 6px 0;
+}
+
+/* =============================================================
    v3.7: 補助金申請資料用 説明バナー (.biz-note)
    ============================================================= */
 .biz-note {
@@ -1640,3 +1733,283 @@ textarea.form-input { resize: vertical; }
    - これによりモーダルの開閉、ローディング表示、バナー表示が正しく動く。
    ============================================================= */
 [hidden] { display: none !important; }
+
+/* =============================================================
+   v3.9: スマホ表示 包括対応 (横はみ出し防止 / テーブル→カード変換)
+   - PC表示は現行を維持
+   - スマホ (≤720px) のみカード化・縮小・折り返し
+   - iPhone 360-390px / Android 360-412px の縦向きを基準
+   ============================================================= */
+
+/* 横スクロール完全防止 */
+html, body { overflow-x: hidden; }
+body { max-width: 100%; }
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+/* AppBar: 360px 級画面でブランドサブを隠してロール切替を確保 */
+@media (max-width: 419px) {
+  .appbar-inner { padding: 10px 12px; gap: 6px; }
+  .brand { gap: 8px; min-width: 0; flex-shrink: 1; }
+  .brand-mark { width: 32px; height: 32px; font-size: 18px; flex-shrink: 0; }
+  .brand-title { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .brand-sub { display: none; }
+  .role-switch { padding: 3px; flex-shrink: 0; }
+  .role-btn { padding: 6px 10px; font-size: 12px; gap: 4px; }
+  .role-icon { font-size: 13px; }
+}
+
+/* 店舗 ダッシュボード: 5KPIを2列レイアウトへ (5枚目だけ全幅) */
+@media (max-width: 480px) {
+  .kpi-row-5 { grid-template-columns: 1fr 1fr; }
+  .kpi-row-5 .kpi-mini,
+  .kpi-row-5 .kpi-mini:nth-child(4) { grid-column: auto; }
+  .kpi-row-5 .kpi-mini:nth-child(5) { grid-column: span 2; }
+  .kpi-mini { padding: 10px 10px 12px; }
+  .km-value { font-size: 18px; }
+  .km-label { font-size: 11px; }
+  .km-sub { font-size: 10px; }
+}
+
+/* 店舗 アクションロー: ボタンをタップしやすく縮小 */
+@media (max-width: 480px) {
+  .action-row { padding: 16px 14px; gap: 12px; }
+  .ar-icon { font-size: 28px; width: 42px; }
+  .ar-title { font-size: 16px; }
+  .ar-sub { font-size: 11px; }
+}
+
+/* 全モーダル: スマホで 95vw に収める + 余白縮小 */
+@media (max-width: 720px) {
+  .modal { padding: 8px; }
+  .modal-card,
+  .modal-card.modal-large,
+  .modal-card.image-zoom-card { max-width: 95vw; max-height: 92vh; }
+  .modal-header { padding: 12px 14px; }
+  .modal-title { font-size: 14px; }
+  .modal-body { padding: 12px 14px; }
+  .modal-actions {
+    padding: 10px 12px env(safe-area-inset-bottom, 10px);
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .modal-actions .btn {
+    font-size: 13px; padding: 10px 12px;
+    flex: 1 1 calc(50% - 4px); min-width: 0;
+  }
+  .modal-actions .btn:first-child:last-child { flex: 1; }
+  .detail-row { gap: 8px; }
+  .detail-row .dl { font-size: 12px; }
+  .detail-row .dv { font-size: 13px; }
+}
+
+/* HQ 一覧テーブル → スマホでカード表示に変換 (data-label 利用) */
+@media (max-width: 720px) {
+  /* ラッパーの装飾解除 */
+  .hq-list-wrap {
+    overflow-x: visible;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    border-radius: 0;
+  }
+  .hq-list-table {
+    display: block;
+    min-width: 0;
+    width: 100%;
+    border: none;
+    background: transparent;
+    font-size: 13px;
+  }
+  .hq-list-table colgroup,
+  .hq-list-table thead { display: none; }
+  .hq-list-table tbody { display: block; }
+
+  /* tr → カード化 */
+  .hq-list-table tr {
+    display: block;
+    background: #fff;
+    border: 1px solid #e8ecf2;
+    border-radius: 12px;
+    margin-bottom: 10px;
+    padding: 12px 14px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.03);
+  }
+  .hq-list-table tr.row-locked { background: #fafbfd; }
+  .hq-list-table tr:hover { background: #fff; }
+
+  /* td → ラベル付きの行 */
+  .hq-list-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px dashed #eef1f6;
+    text-align: right;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    word-break: break-word;
+    font-size: 13px;
+  }
+  .hq-list-table td:last-child { border-bottom: none; }
+
+  /* data-label を擬似要素ラベルとして表示 */
+  .hq-list-table td::before {
+    content: attr(data-label);
+    font-size: 11px;
+    color: #6b7488;
+    font-weight: 700;
+    flex-shrink: 0;
+    width: 80px;
+    text-align: left;
+    letter-spacing: .04em;
+  }
+
+  /* 値のスタイル */
+  .hq-list-table td.num,
+  .hq-list-table td.amount { text-align: right; }
+  .hq-list-table td.amount { font-size: 17px; font-weight: 800; color: #0b3d91; }
+  .hq-list-table td.amount.expense { color: #0a7a4d; }
+
+  .hq-list-table td.status .status-pill { font-size: 11px; padding: 3px 10px; }
+  .hq-list-table td .thumb-mini { width: 36px; height: 36px; font-size: 18px; }
+
+  /* 操作ボタン行: ラベル非表示・全幅・上に区切り */
+  .hq-list-table td.actions {
+    display: block;
+    border-top: 1px solid #eef1f6;
+    border-bottom: none;
+    margin-top: 8px;
+    padding-top: 10px;
+    text-align: right;
+  }
+  .hq-list-table td.actions::before { content: ''; display: none; }
+  .hq-list-table .row-actions { gap: 5px; justify-content: flex-end; }
+  .hq-list-table .row-btn { width: 32px; height: 32px; font-size: 14px; }
+}
+
+/* HQ ダッシュボード KPI: 2列 (既存維持) を狭幅で安定化 */
+@media (max-width: 480px) {
+  .hq-kpi-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .kpi { padding: 12px 12px; }
+  .kpi-value { font-size: 20px; }
+}
+
+/* HQ ツールバー: モバイル縦並び */
+@media (max-width: 480px) {
+  .hq-toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
+  .hq-toolbar h1.screen-title { margin: 0 0 4px; }
+  .hq-toolbar-actions {
+    width: 100%; flex-wrap: wrap; gap: 6px;
+    justify-content: flex-start;
+  }
+  .hq-toolbar-actions .form-input { flex: 1; min-width: 100px; }
+  .hq-toolbar-actions button { font-size: 12px; padding: 8px 10px; }
+}
+
+/* 月次集計バナー: モバイル縦並び */
+@media (max-width: 480px) {
+  .month-summary-banner { padding: 12px 14px; gap: 10px; flex-direction: column; align-items: stretch; }
+  .msb-period { text-align: left; }
+  .msb-period-value { font-size: 18px; }
+  .msb-status { align-self: flex-start; }
+  .month-summary-banner .btn { width: 100%; font-size: 13px; padding: 10px 12px; }
+}
+
+/* 月次大型KPI: 1列でフォント縮小 */
+@media (max-width: 480px) {
+  .month-big { padding: 14px 16px; }
+  .month-big .mb-value { font-size: 22px; }
+  .month-big .mb-label { font-size: 11px; }
+  .month-big .mb-sub { font-size: 10px; }
+}
+
+/* 月次ステータスカード: 2列 (既存維持) を縮小 */
+@media (max-width: 480px) {
+  .ms-card { padding: 10px 8px; }
+  .ms-num { font-size: 22px; }
+  .ms-lbl { font-size: 10px; }
+}
+
+/* 大型サマリー (売上/経費 確認画面): モバイルでフォント縮小 */
+@media (max-width: 480px) {
+  .big-summary { padding: 14px 14px 12px; }
+  .bs-amount { font-size: 28px; padding: 8px 10px; }
+  .bs-num { font-size: 18px; padding: 8px 10px; }
+  .bs-text { font-size: 16px; padding: 8px 10px; }
+  .bs-cat-display { font-size: 16px; padding: 8px 10px; min-height: 38px; }
+  .bs-currency { font-size: 22px; }
+}
+
+/* CSV出力カード: モバイル余白調整 */
+@media (max-width: 480px) {
+  .csv-card { padding: 14px; }
+  .csv-card .cs-title { font-size: 16px; }
+  .csv-card .cs-desc { font-size: 12px; line-height: 1.5; }
+  .csv-card .cs-icon { font-size: 28px; }
+}
+
+/* 修正依頼カード: モバイルでボタン縦並び */
+@media (max-width: 480px) {
+  .rcv-actions { grid-template-columns: 1fr; }
+  .rcv-amount { font-size: 18px; }
+  .rcv-vendor, .rcv-title { font-size: 15px; }
+}
+
+/* HQ ペンディングカード: アクションを折り返し可 */
+@media (max-width: 480px) {
+  .pending-card .pc-amount { font-size: 20px; }
+  .pending-card .pc-actions { gap: 6px; }
+  .pending-card .pc-actions .btn { font-size: 12px; padding: 8px 10px; }
+}
+
+/* 内訳グリッド: 既に1列だが間隔縮小 */
+@media (max-width: 480px) {
+  .month-breakdown-grid { gap: 10px; }
+  .bd-card { padding: 12px; }
+  .cat-row { gap: 8px; }
+  .cat-row .cr-label { min-width: 70px; font-size: 12px; }
+  .cat-row .cr-amount { min-width: 80px; font-size: 14px; }
+}
+
+/* AIバナー / biz-note: モバイルでパディング縮小 */
+@media (max-width: 480px) {
+  .ai-banner { font-size: 12px; padding: 8px 10px; }
+  .biz-note { font-size: 12px; padding: 8px 12px; line-height: 1.5; }
+  .lead-alert { font-size: 12px; padding: 10px 12px; }
+}
+
+/* セクション見出し: モバイルでサイズ縮小 */
+@media (max-width: 480px) {
+  .conf-section-title { font-size: 12px; margin: 18px 0 8px; }
+  .month-section-title { font-size: 13px; margin: 18px 0 8px; }
+  .section-title { font-size: 13px; }
+}
+
+/* 経費OCR読取結果 / 詳細レシート: モバイル文字サイズ調整 */
+@media (max-width: 480px) {
+  .ocr-text { font-size: 11px; }
+  .detail-receipt-large img { max-height: 200px; }
+  .detail-receipt-large .drl-emoji { font-size: 56px; }
+}
+
+/* グリッド2カラム: モバイルで1カラムフォールバック (col-span-2 は引き続き全幅) */
+@media (max-width: 480px) {
+  .grid-2 { grid-template-columns: 1fr; }
+  .grid-2 .col-span-2 { grid-column: 1; }
+}
+
+/* メインコンテンツ: モバイル横余白を引き締め */
+@media (max-width: 480px) {
+  .screen-pad { padding: 12px 12px 90px; }
+  .hq-screen .screen-pad { padding: 12px 12px 24px; }
+}
+
+/* 録音マイクボタン: モバイルで小さめ */
+@media (max-width: 480px) {
+  .mic-btn { width: 140px; height: 140px; }
+  .mic-icon { font-size: 56px; }
+}

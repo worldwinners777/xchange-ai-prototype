@@ -140,26 +140,45 @@
         <div class="screen-header-title">売上 音声入力</div>
       </div>
       <div class="screen-pad">
-        <p class="biz-note">🎤 マイク録音またはサンプル文の編集で、<strong>AIが売上項目を自動分解</strong>します。登録前に店長が確認できます。</p>
-
-        <div class="mic-wrap">
-          <button id="micBtn" class="mic-btn" aria-pressed="false">
-            <span class="mic-icon" aria-hidden="true">🎤</span>
-            <span class="mic-label" id="micLabel">録音開始</span>
-          </button>
-          <div class="mic-hint" id="micHint">タップして録音開始</div>
+        <!-- v3.10: スマホ標準キーボードのマイクボタンをメイン導線にする案内 -->
+        <div class="voice-mic-guide">
+          <div class="vmg-line">
+            <span class="vmg-icon" aria-hidden="true">📱</span>
+            <strong>スマホのキーボードにあるマイクボタン</strong> 🎤 を押して、売上内容を話してください
+          </div>
+          <div class="vmg-sub">
+            話し終わったら下の <strong>「🤖 AIで分解する」</strong> ボタンを押すと、AI が売上項目に自動分解します
+          </div>
         </div>
 
+        <!-- 入力例 -->
+        <div class="voice-example-block">
+          <div class="vex-label">📝 入力例</div>
+          <div class="vex-text">新品タイヤ4本、195/65R15、プリウス、合計48,000円、現金、廃タイヤ処分あり、バランス調整あり</div>
+        </div>
+
+        <!-- メイン入力欄 (大型・タップしてキーボード起動) -->
+        <div class="form-block">
+          <label class="form-label" for="voiceTranscript">📝 音声テキスト（タップしてキーボードのマイクで入力）</label>
+          <textarea id="voiceTranscript"
+            class="form-input voice-textarea-v2"
+            rows="8"
+            inputmode="text"
+            enterkeyhint="done"
+            autocapitalize="sentences"
+            placeholder="ここをタップ → スマホのキーボードでマイクボタンを押して話してください"></textarea>
+        </div>
+
+        <!-- 補助操作: サンプル投入 / クリア / デモ録音モック -->
         <div class="voice-tools">
           <button class="btn ghost small" id="sampleVoiceBtn">📋 サンプル音声を入れる</button>
           <button class="btn ghost small" id="clearVoiceBtn">クリア</button>
+          <button class="btn ghost small" id="micBtn" aria-pressed="false">
+            <span aria-hidden="true">🎤</span>
+            <span id="micLabel">デモ録音(モック)</span>
+          </button>
         </div>
-
-        <div class="form-block">
-          <label class="form-label">音声テキスト（編集できます）</label>
-          <textarea id="voiceTranscript" class="form-input voice-textarea" rows="5"
-            placeholder="例：新品タイヤ4本販売、サイズは195/65R15、車はプリウス、タイヤ代と交換工賃込みで合計48,000円、支払いは現金、廃タイヤ処分あり、バランス調整あり"></textarea>
-        </div>
+        <div class="mic-hint" id="micHint" hidden></div>
 
         <div class="ai-loading" id="salesAILoading" hidden>
           <div class="spinner"></div>
