@@ -1000,6 +1000,19 @@ textarea.form-input { resize: vertical; }
   margin-top: 4px;
 }
 .vtb-note strong { color: #c1271a; font-weight: 800; }
+/* v3.15: デフォルト値の説明 (日付/店舗/担当者) */
+.vtb-default {
+  background: #eef5ff;
+  border: 1px solid #c8d2e4;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 11px;
+  color: #2d3648;
+  font-weight: 600;
+  line-height: 1.5;
+  margin-top: 6px;
+}
+.vtb-default strong { color: #0b3d91; font-weight: 800; }
 
 @media (max-width: 480px) {
   .voice-tips-block { padding: 12px 14px; }

@@ -60,10 +60,29 @@
     "廃タイヤ処分料、産廃業者へ 12,000円、現金で支払い。"
   ];
 
+  // ===== v3.15: 音声入力テンプレート (12項目・日付/店舗/担当者は除外) =====
+  // 売上音声入力画面を開いた時に textarea に初期表示される。
+  // 「📝 入力テンプレートを入れる」「クリア」ボタン押下時もこれを再表示。
+  // 日付・店舗名・担当者はシステム側でデフォルト設定するため除外。
+  const VOICE_TEMPLATE = [
+    "お客様名:",
+    "売上区分:",
+    "商品名:",
+    "タイヤサイズ:",
+    "数量:",
+    "単価:",
+    "合計金額:",
+    "支払方法:",
+    "車種:",
+    "車両番号:",
+    "作業内容:",
+    "備考:"
+  ].join("\n");
+
   // ===== v3: 音声サンプル（テキストのみ。AIモック解析器が項目分解する） =====
   const VOICE_SAMPLES = [
-    // v3.14: 項目名形式・改行区切り (実機スマホで音声入力した想定)
-    "売上区分、新品タイヤ販売。\n商品名、ヨコハマ アイスガード。\nタイヤサイズ、195 65 R15。\n数量、4本。\n車種、プリウス。\n車両番号、品川 300 あ 1234。\n合計金額、6万8千円。\n支払方法、現金。\n作業内容、タイヤ交換、バランス調整、廃タイヤ処分あり。\n備考、高橋様。",
+    // v3.15: 12項目の項目名形式 (お客様名/単価追加、日付/店舗/担当者は除外)
+    "お客様名、高橋様。\n売上区分、新品タイヤ販売。\n商品名、ヨコハマ アイスガード。\nタイヤサイズ、195 65 R15。\n数量、4本。\n単価、1万7千円。\n合計金額、6万8千円。\n支払方法、現金。\n車種、プリウス。\n車両番号、品川 300 あ 1234。\n作業内容、タイヤ交換、バランス調整、廃タイヤ処分あり。\n備考、売掛なし。",
     "新品タイヤ4本販売、サイズは195/65R15、車はプリウス、タイヤ代と交換工賃込みで合計48,000円、支払いは現金、廃タイヤ処分あり、バランス調整あり。",
     "ブリヂストン レグノ 215/55R17を4本、お客様は田中様、車種ヴィッツ、品川300あ12-34、合計136,000円、クレジットカード、工賃込み、廃タイヤ処分あり。",
     "中古タイヤ4本、175/65R14、アクア、佐藤様、現金で18,000円、廃タイヤ処分も込み。",
@@ -524,6 +543,7 @@
       "タイヤサイズ": "tireSize",
       "サイズ":     "tireSize",
       "数量":       "qty",
+      "単価":       "unitPrice",      // v3.15: 単価ラベル追加
       "車種":       "carModel",
       "車両番号":   "carNumber",
       "ナンバー":   "carNumber",
@@ -535,7 +555,8 @@
       "作業内容":   "workContent",
       "備考":       "note",
       "お客様名":   "customer",
-      "お客様":     "customer"
+      "お客様":     "customer",
+      "顧客名":     "customer"        // v3.15: 顧客名ラベル追加
     };
     // 長いラベルから先にマッチさせる (タイヤサイズ > サイズ など)
     const labels = Object.keys(labelMap).sort((a, b) => b.length - a.length);
@@ -567,6 +588,17 @@
     if (s.qty) {
       const m = s.qty.match(/(\d+)/);
       if (m) draft.qty = Number(m[1]);
+    }
+    // v3.15: 単価の構造化抽出
+    if (s.unitPrice) {
+      let amount = 0;
+      const m = s.unitPrice.match(/([0-9,]+)/);
+      if (m) amount = Number(m[1].replace(/,/g, ""));
+      if (!amount) {
+        const k = parseKanjiYen(s.unitPrice);
+        if (k) amount = k;
+      }
+      if (amount) draft.unitPrice = amount;
     }
     if (s.carModel) draft.carModel = s.carModel;
     if (s.carNumber) {
@@ -786,6 +818,13 @@
     if (name === "store-today-sales")      renderStoreTodaySales();
     if (name === "store-today-expenses")   renderStoreTodayExpenses();
     if (name === "store-rejections")       renderStoreRejections();
+    // v3.15: 売上音声入力画面を開いた時に textarea が空ならテンプレートを初期表示
+    if (name === "store-sales-voice") {
+      const ta = $("#voiceTranscript");
+      if (ta && !ta.value.trim()) {
+        ta.value = VOICE_TEMPLATE;
+      }
+    }
   }
   function setHQTab(name) {
     $$(".hq-nav-item").forEach(b => b.classList.toggle("active", b.dataset.hqTab === name));
@@ -987,29 +1026,18 @@
       toast("サンプル音声テキストを入れました");
     });
 
-    // v3.14: 入力テンプレート投入 (項目名のみのスケルトン、各項目に音声入力)
+    // v3.15: 入力テンプレート投入 (12項目・日付/店舗/担当者は除外)
     $("#templateVoiceBtn").addEventListener("click", () => {
-      const tmpl = [
-        "売上区分:",
-        "商品名:",
-        "タイヤサイズ:",
-        "数量:",
-        "車種:",
-        "車両番号:",
-        "合計金額:",
-        "支払方法:",
-        "作業内容:",
-        "備考:"
-      ].join("\n");
-      $("#voiceTranscript").value = tmpl;
+      $("#voiceTranscript").value = VOICE_TEMPLATE;
       $("#voiceTranscript").focus();
       toast("テンプレートを入れました。各項目に音声入力してください");
     });
 
-    // クリア
+    // クリア (v3.15: 完全空欄ではなくテンプレートを再表示)
     $("#clearVoiceBtn").addEventListener("click", () => {
-      $("#voiceTranscript").value = "";
+      $("#voiceTranscript").value = VOICE_TEMPLATE;
       $("#voiceTranscript").focus();
+      toast("テンプレートを再表示しました");
     });
 
     // AIで分解する → 確認画面へ
