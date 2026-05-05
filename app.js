@@ -1,13 +1,42 @@
 /* =====================================================================
- * X-Change Prototype - Application Logic (v2)
+ * X-Change Prototype - Application Logic
  * 吉田自動車工業 タイヤ販売店舗向け AI業務管理プロトタイプ
  *
- * v2 改善点:
- *   - 店舗ダッシュボード: 5KPIカード + 5大ボタン + 修正依頼バナー
- *   - 店舗: 本日売上一覧 / 本日経費一覧 / 修正依頼一覧 を新規追加
- *   - 本社: PC向け左サイドバーレイアウト
- *   - 本社: 8KPIダッシュボード / 未確認一覧 / CSV出力センター
- *   - 既存の音声→確認→登録, OCR→分類→登録, 承認/修正依頼フローは維持
+ * 【開発領域分割: 3領域管理】 (詳細は README §4-3)
+ *
+ *   領域A: 売上音声入力・店舗側操作
+ *     - 店舗ダッシュボード / 売上音声入力 / 売上登録前確認 / 売上登録 /
+ *       本日売上一覧 / 修正依頼一覧 / 修正して再提出(売上)
+ *     - parseVoiceText / parseStructuredFields / setupVoiceUI /
+ *       renderSalesConfirm / setupSalesConfirm /
+ *       renderStoreDashboard / renderStoreTodaySales / renderStoreRejections
+ *     - ★ 一旦完成済み扱い。経費OCR/本社機能の修正で壊さないこと ★
+ *
+ *   領域B: 経費OCR・AI分類
+ *     - 経費レシート登録 / 実OCR読取(Tesseract.js) / OCR原文表示・編集 /
+ *       購入先・金額・消費税・支払方法・日付の推定 / AI経費分類候補 /
+ *       経費登録前確認 / 経費登録 / 本日経費一覧 / 低信頼度時の手入力誘導
+ *     - extractAmountFromReceipt / extractTaxFromReceipt /
+ *       extractVendorFromReceipt / extractPaymentFromReceipt /
+ *       summarizeReceiptContent / parseExpenseText / classifyExpense /
+ *       loadTesseract / runRealOCR / setupExpenseUpload /
+ *       _buildDraftFromUpload / renderExpenseConfirm / setupExpenseConfirm
+ *     - ★ 現在最も修正が必要な領域。領域A・Cを壊さないこと ★
+ *
+ *   領域C: 本社確認・月次集計・権限管理(本番化時)
+ *     - 本社ダッシュボード / 売上一覧 / 経費一覧 / 売上集計 / 未確認一覧 /
+ *       月次集計 / 月次締め / CSV出力 / (本番化時) ログイン認証・権限管理
+ *     - renderHQDashboard / renderHQSales / renderHQExpenses /
+ *       renderHQPending / renderSalesReport / renderMonthly /
+ *       exportSalesCSV / exportExpenseCSV / exportMonthlyCSV /
+ *       setupRejectModal / setupCategoryChangeModal
+ *     - ★ 機能完成。本番化時に権限管理(ログイン・ロール別アクセス)を追加 ★
+ *
+ *   領域横断の契約:
+ *     - localStorage キー "xchange.records.v1" の売上/経費レコード スキーマ
+ *       (詳細は README §6 データ構造)
+ *     - migrateRecord() の後方互換ステータス変換
+ *     - 4ステータス: 未確認 / 確認済み / 修正依頼 / 月次処理済み
  * ===================================================================== */
 
 (function () {
@@ -392,6 +421,11 @@
     return r.category === "タイヤ仕入" || r.category === "仕入";
   }
 
+  // ▼▼▼ 領域A: AI音声パーサ層 ▼▼▼
+  //   売上音声テキスト → 項目分解 (parseVoiceText / parseStructuredFields)
+  //   ★ 一旦完成済み扱い。領域B(経費OCR)・領域C(本社)の修正で壊さないこと ★
+  //   詳細は README §4-3 / 同 §11-2
+
   // ================== v3: AIモック音声解析 ==================
   // 漢数字混じりの金額 ("4万8千", "15万6千", "12万") を数値化
   function parseKanjiYen(text) {
@@ -676,6 +710,15 @@
       draft.customer = s.customer.endsWith("様") ? s.customer : `${s.customer}様`;
     }
   }
+
+  // ▲▲▲ 領域A: AI音声パーサ層 (END) ▲▲▲
+
+  // ▼▼▼ 領域B: 経費パーサ・OCR抽出器 ▼▼▼
+  //   parseExpenseText / classifyExpense / extractAmountFromReceipt /
+  //   extractTaxFromReceipt / extractVendorFromReceipt /
+  //   extractPaymentFromReceipt / extractDateFromReceipt / summarizeReceiptContent
+  //   ★ 現在最も修正が必要な領域。領域A・Cを壊さないこと ★
+  //   詳細は README §4-3 / 同 §11-4
 
   // ================== v3.1: AIモック 経費テキスト解析 ==================
   function newEmptyExpenseDraft() {
@@ -978,6 +1021,12 @@
     return top;
   }
 
+  // ▲▲▲ 領域B: 経費パーサ・OCR抽出器 (END) ▲▲▲
+
+  // ▼▼▼ 共通基盤: 状態 / ルーティング / ユーティリティ ▼▼▼
+  //   3領域すべてが参照する。スキーマ変更時は領域A・B・C 全画面の影響を確認
+  //   詳細は README §6 データ構造
+
   // ================== 状態 ==================
   let records = loadAll();
   let currentRole = "store";
@@ -1034,6 +1083,13 @@
     if (!p.value) p.value = monthKey(new Date());
   }
 
+  // ▲▲▲ 共通基盤 (END) ▲▲▲
+
+  // ▼▼▼ 領域A: 店舗側UI (画面層) ▼▼▼
+  //   店舗ダッシュボード / 本日売上一覧 / 本日経費一覧 / 修正依頼一覧 /
+  //   売上音声入力 / 売上登録前確認 / 売上登録
+  //   ★ 一旦完成済み扱い。領域B/Cの修正で壊さないこと ★
+  //   詳細は README §4-3
   // ================== 店舗: ダッシュボード ==================
   function renderStoreDashboard() {
     $("#greetingDate").textContent = fmtGreeting(new Date());
@@ -1378,6 +1434,13 @@
     });
   }
 
+  // ▲▲▲ 領域A: 店舗側UI (END) ▲▲▲
+
+  // ▼▼▼ 領域B: 経費UI ▼▼▼
+  //   経費レシート登録 (画像アップロード / OCR読取 / 進捗表示) /
+  //   OCR原文表示・編集 / AI分類候補 / 経費登録前確認 / 経費登録
+  //   ★ 現在最も修正が必要な領域。領域A・Cを壊さないこと ★
+  //   詳細は README §4-3 / 同 §11-4
   // ================== v3.1: 経費 アップロード ==================
   // 状態: 画像 (file or sample) + メモ。OCR読取で draft を構築、AI分類で確認画面へ。
   // v3.17: ocrSource = "real" | "sample" | "memo" | "empty"
@@ -2019,6 +2082,14 @@
     });
   }
 
+  // ▲▲▲ 領域B: 経費UI (END) ▲▲▲
+
+  // ▼▼▼ 領域C: 本社UI / 月次集計 / CSV出力 / (本番化時)権限管理 ▼▼▼
+  //   本社ダッシュボード(8KPI) / 売上一覧 / 経費一覧 / 売上集計(売上レポート) /
+  //   未確認一覧 / 月次集計 / 月次締め / CSV出力(売上/経費/月次/期間指定) /
+  //   詳細モーダル / 修正依頼モーダル / 本社確定科目変更モーダル
+  //   ★ 機能完成。本番化時にログイン認証・店舗/本社/管理者ロール別アクセス制御を追加 ★
+  //   詳細は README §4-3
   // ================== 本社: ダッシュボード (8 KPI) ==================
   // ================== v3.16: 売上集計 (Sales Report) ==================
   // 期間別 / 支払方法別 / 売上区分別 / 商品別 / タイヤサイズ別 + フィルタ + CSV出力
