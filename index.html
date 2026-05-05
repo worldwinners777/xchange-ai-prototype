@@ -357,6 +357,7 @@
       </div>
       <div class="screen-pad">
         <p class="biz-note">📷 レシート画像の <strong>実OCR読取</strong>（Tesseract.js / ブラウザ内処理・APIキー不要）と <strong>AIによる経費科目分類</strong> で、入力作業を効率化します。</p>
+        <p class="ocr-caution-note">⚠ ブラウザOCRはレシートの角度・明るさ・文字の小ささにより誤認識する場合があります。<strong>金額・購入先・経費科目は必ず確認してください。</strong></p>
         <div class="ocr-status-chip" id="ocrSourceStatus" data-state="idle">未読取</div>
 
         <!-- 1. レシート画像 -->
@@ -433,9 +434,10 @@
         <div class="screen-header-title">経費 登録前確認</div>
       </div>
       <div class="screen-pad">
-        <div class="ai-banner">
+        <div class="ai-banner" id="expenseAiBanner">
           🤖 AIが分類しました。<strong>必ず内容をご確認ください。</strong>
         </div>
+        <p class="ocr-caution-note">⚠ ブラウザOCRはレシートの角度・明るさ・文字の小ささにより誤認識する場合があります。<strong>金額・購入先・経費科目は必ず確認してください。</strong></p>
 
         <!-- レシート画像 -->
         <div class="receipt-thumb" id="receiptThumb"></div>

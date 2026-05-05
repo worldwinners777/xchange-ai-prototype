@@ -518,6 +518,20 @@ textarea.form-input { resize: vertical; }
 .ocr-status-chip[data-state="memo"]    { background: #eef3eb; color: #2f6b1c; border-color: #c5d8b8; }
 .ocr-status-chip[data-state="working"] { background: #fff8e6; color: #6c4a00; border-color: #f3d98a; }
 
+/* v3.17.2: ブラウザOCR精度に関する注意書き (常時表示・経費登録画面) */
+.ocr-caution-note {
+  margin: 0 0 10px; padding: 8px 10px;
+  background: #fff8e6; border: 1px solid #f3d98a; border-radius: 8px;
+  font-size: 12px; line-height: 1.55; color: #6c4a00;
+}
+.ocr-caution-note strong { color: #8a3b00; }
+
+/* v3.17.2: 低信頼度バナー (経費確認画面・OCR読取精度が低い時) */
+.ai-banner.low-confidence {
+  background: #fff3e6; border-color: #f3b673; color: #8a3b00;
+}
+.ai-banner.low-confidence strong { color: #b34800; }
+
 /* v3.17: 開発確認用デバッグ表示 (本番では目立たない小さなグレー) */
 .ocr-debug {
   margin-top: 8px;

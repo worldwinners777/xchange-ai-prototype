@@ -699,6 +699,163 @@
     };
   }
   // テキストから経費項目を抽出（音声入力 / メモ用）
+  // ===== v3.17.2: OCRレシート専用 抽出ロジック =====
+  // OCR文字列の数字をそのまま拾わず、キーワード近傍を優先し、税率(8/10)・小さな数字・電話/伝票番号を除外する。
+  // confidence:
+  //   "high"   : 「合計/総合計/税込合計/お支払金額/請求金額」キーワード直近の金額
+  //   "medium" : 「税込/クレジット支払/カード支払/現金/お預り/お買上金額」キーワード直近の金額
+  //   "low"    : ¥プレフィクス/円サフィクス付き数字の最大値 (キーワード手掛かりなし)
+  //   "none"   : 抽出不可 (OCR文字化け等)
+  function extractAmountFromReceipt(text) {
+    if (!text) return { amount: 0, confidence: "none" };
+    const T = String(text);
+    // === Priority A: 総合計 / 合計（税込）/ 税込合計 ===
+    const a = T.match(/(?:総合計|合計\s*[\(（]?\s*税込\s*[\)）]?|税込合計)\s*[:：]?\s*[¥￥]?\s*([0-9][0-9,]+)\s*円?/);
+    if (a) { const v = Number(a[1].replace(/,/g, "")); if (v >= 10) return { amount: v, confidence: "high" }; }
+    // === Priority B: お支払い金額 / お支払合計 / 請求金額 ===
+    const b = T.match(/(?:お?支払(?:い)?(?:金額|合計)|請求金額)\s*[:：]?\s*[¥￥]?\s*([0-9][0-9,]+)\s*円?/);
+    if (b) { const v = Number(b[1].replace(/,/g, "")); if (v >= 10) return { amount: v, confidence: "high" }; }
+    // === Priority C: 「合計」(小計を除外) — 最後の出現を採用 (通常レシート末尾が総合計) ===
+    // Safari 16.3 以前で lookbehind が parse error になるため、ループで「小計」を除外する
+    const cMatches = [];
+    const cRe = /合計\s*[:：]?\s*[¥￥]?\s*([0-9][0-9,]+)\s*円?/g;
+    let cm;
+    while ((cm = cRe.exec(T)) !== null) {
+      if (T.charAt(cm.index - 1) !== "小") cMatches.push(cm);
+    }
+    if (cMatches.length) {
+      const last = cMatches[cMatches.length - 1];
+      const v = Number(last[1].replace(/,/g, ""));
+      if (v >= 10) return { amount: v, confidence: "high" };
+    }
+    // === Priority D: 税込 (合計を含まないため確度はやや下) ===
+    const d = T.match(/税込(?!合計)\s*[:：]?\s*[¥￥]?\s*([0-9][0-9,]+)\s*円?/);
+    if (d) { const v = Number(d[1].replace(/,/g, "")); if (v >= 10) return { amount: v, confidence: "medium" }; }
+    // === Priority E: クレジット支払/カード支払/VISA/Master/JCB/AMEX 近傍 ===
+    const e = T.match(/(?:クレジット支払|カード支払|VISA|Master(?:card)?|JCB|AMEX|American\s*Express)\s*[:：]?\s*[¥￥]?\s*([0-9][0-9,]+)\s*円?/i);
+    if (e) { const v = Number(e[1].replace(/,/g, "")); if (v >= 50) return { amount: v, confidence: "medium" }; }
+    // === Priority F: 現金/お預[かり]/お買上[げ]?金額 ===
+    const f = T.match(/(?:現金|お預[かりり]|お買上(?:げ)?金額)\s*[:：]?\s*[¥￥]?\s*([0-9][0-9,]+)\s*円?/);
+    if (f) { const v = Number(f[1].replace(/,/g, "")); if (v >= 50) return { amount: v, confidence: "medium" }; }
+    // === Priority G: ¥プレフィクス/円サフィクスの数字から最大値 (≧50円のみ・低信頼) ===
+    const marked = [];
+    for (const m of T.matchAll(/[¥￥]\s*([0-9][0-9,]+)/g)) marked.push(Number(m[1].replace(/,/g, "")));
+    for (const m of T.matchAll(/([0-9][0-9,]+)\s*円(?!引)/g)) marked.push(Number(m[1].replace(/,/g, "")));
+    const filtered = marked.filter(v => v >= 50 && v < 100000000);
+    if (filtered.length) return { amount: Math.max.apply(null, filtered), confidence: "low" };
+    return { amount: 0, confidence: "none" };
+  }
+
+  // 消費税抽出: 「消費税等/税額/内消費税/消費税(8%)/消費税(10%)」キーワード直近の金額。8/10 単独はレートとして除外。
+  function extractTaxFromReceipt(text) {
+    if (!text) return 0;
+    const T = String(text);
+    const candidates = [];
+    const patterns = [
+      /消費税(?:等)?(?:\s*[\(（]?\s*(?:8|10)\s*%\s*[\)）]?)?\s*[:：]?\s*[¥￥]?\s*([0-9][0-9,]+)\s*円?/g,
+      /税額\s*[:：]?\s*[¥￥]?\s*([0-9][0-9,]+)\s*円?/g,
+      /内消費税\s*[:：]?\s*[¥￥]?\s*([0-9][0-9,]+)\s*円?/g
+    ];
+    for (const re of patterns) {
+      let m;
+      while ((m = re.exec(T)) !== null) {
+        const v = Number(m[1].replace(/,/g, ""));
+        if (v > 0 && v !== 8 && v !== 10) candidates.push(v);
+      }
+    }
+    return candidates.length ? candidates[0] : 0;
+  }
+
+  // OCR用 購入先抽出 (parseExpenseText 内のリストと同等。OCRに頻出のコンビニ・カー用品店を網羅)
+  function extractVendorFromReceipt(text) {
+    if (!text) return "";
+    const T = String(text);
+    const vendors = [
+      // セブン系 (7&i 表記対応)
+      ["セブン-イレブン", "セブンイレブン"], ["セブンイレブン", "セブンイレブン"], ["7\\s*&\\s*i", "セブンイレブン"], ["セブン", "セブンイレブン"],
+      // コンビニ
+      ["ローソン", "ローソン"], ["ファミリーマート", "ファミリーマート"], ["ファミマ", "ファミリーマート"],
+      ["ミニストップ", "ミニストップ"], ["デイリーヤマザキ", "デイリーヤマザキ"],
+      // ガソリンスタンド
+      ["ENEOS", "ENEOS"], ["エネオス", "ENEOS"],
+      ["コスモ石油", "コスモ石油"], ["出光", "出光興産"], ["昭和シェル", "昭和シェル"],
+      // ホームセンター・カー用品店
+      ["カインズ", "カインズ"], ["コメリ", "ホームセンターコメリ"],
+      ["ホームセンター", "ホームセンター"], ["ビバホーム", "ビバホーム"],
+      ["オートバックス", "オートバックス"], ["イエローハット", "イエローハット"],
+      // 公共料金・通信
+      ["東京電力", "東京電力エナジーパートナー"], ["TEPCO", "東京電力エナジーパートナー"],
+      ["NTTドコモ", "NTTドコモ"], ["ドコモ", "NTTドコモ"],
+      ["ソフトバンク", "ソフトバンク"], ["楽天モバイル", "楽天モバイル"],
+      // タイヤ仕入
+      ["ブリヂストンタイヤジャパン", "ブリヂストンタイヤジャパン"],
+      ["ブリヂストン", "ブリヂストン"], ["ヨコハマタイヤ", "ヨコハマタイヤ"],
+      ["タイヤ卸", "タイヤ卸業者"],
+      // 広告・産廃
+      ["タウンワーク", "タウンワーク掲載料"], ["リクルート", "リクルート"], ["産廃", "産業廃棄物処理業者"],
+      // スーパー
+      ["イオン", "イオン"], ["ヨーカドー", "イトーヨーカドー"], ["ライフ", "ライフ"]
+    ];
+    for (const [needle, val] of vendors) {
+      const re = new RegExp(needle);
+      if (re.test(T)) return val;
+    }
+    return "";
+  }
+
+  // OCR用 支払方法抽出
+  function extractPaymentFromReceipt(text) {
+    if (!text) return "";
+    const T = String(text);
+    const rules = [
+      [/口座引落|引落/, "口座引落"],
+      [/銀行振込|振込/, "銀行振込"],
+      [/(?:クレジット支払|クレジット|クレカ|カード支払|VISA|Master(?:card)?|JCB|AMEX|American\s*Express|ダイナース|UnionPay|銀聯)/i, "クレジットカード"],
+      [/QR(?:コード)?(?:決済)?|PayPay|d払い|au\s*PAY|楽天ペイ|メルペイ/i, "QR決済"],
+      [/(?:現金|釣銭|お?釣り|お?預[かりり]|お預り)/, "現金"]
+    ];
+    for (const [re, val] of rules) if (re.test(T)) return val;
+    return "";
+  }
+
+  // OCR用 日付抽出
+  function extractDateFromReceipt(text) {
+    if (!text) return "";
+    const dm = String(text).match(/(20\d{2})[\/年.\-\s]+(\d{1,2})[\/月.\-\s]+(\d{1,2})/);
+    if (!dm) return "";
+    const y = dm[1];
+    const mn = String(Math.min(12, Math.max(1, +dm[2]))).padStart(2, "0");
+    const dd = String(Math.min(31, Math.max(1, +dm[3]))).padStart(2, "0");
+    return `${y}-${mn}-${dd}`;
+  }
+
+  // 内容欄の自動要約 (OCR全文を絶対に「内容」へ流し込まない)
+  // 推定確度に応じた短い要約を返す。
+  //   - 高信頼カテゴリ (score≥0.80) があれば「ガソリン代」「タイヤ仕入」等の短いラベル
+  //   - 購入先のみ判明 → 「<購入先>購入分」
+  //   - どちらも不明だがOCR/メモテキストはある → 「レシート内容 要確認」
+  //   - 全く何もない → 空欄
+  function summarizeReceiptContent(vendor, topCandidate, hasText) {
+    const cat = topCandidate ? topCandidate.cat : "";
+    const conf = topCandidate ? Number(topCandidate.score || 0) : 0;
+    const catLabel = {
+      "ガソリン代":     "ガソリン代",
+      "タイヤ仕入":     "タイヤ仕入",
+      "工具消耗品":     "工具・消耗品購入",
+      "廃タイヤ処分費": "廃タイヤ処分料",
+      "通信費":         "通信費",
+      "広告宣伝費":     "広告宣伝費",
+      "店舗備品":       "店舗備品購入",
+      "車両関連費":     "車両関連費",
+      "修繕費":         "修繕費",
+      "外注費":         "外注費"
+    };
+    if (cat && conf >= 0.80 && catLabel[cat]) return catLabel[cat];
+    if (vendor) return `${vendor}購入分`;
+    if (cat && conf >= 0.50 && catLabel[cat]) return catLabel[cat];
+    return hasText ? "レシート内容 要確認" : "";
+  }
+
   function parseExpenseText(text) {
     const draft = newEmptyExpenseDraft();
     if (!text) return draft;
@@ -1613,42 +1770,84 @@
 
     if (ctx && ctx.dataUrl) {
       // === 実OCR系統 (実画像アップ済み) ===
+      // v3.17.2: OCR全文をそのまま「内容」「金額」へ流し込まない。
+      // OCR専用抽出器で 購入先/金額/消費税/支払方法/日付 を推定し、内容は短い要約のみ。
+      // 推定できない項目は空欄のまま (サンプル経費で埋めない)。
       source = "real";
-      // 優先: ① 手動修正済みOCR (ocrEdited) ② 実OCR結果 (ctx.ocrText) — サンプルは絶対に使わない
       const baseText = ocrEdited || ctx.ocrText || "";
-      const blob = [baseText, memo].filter(Boolean).join("\n");
-      // baseText/memo どちらも空でも parseExpenseText に空文字を渡し、項目は空欄のままにする (サンプルで埋めない)
-      draft = parseExpenseText(blob);
-      draft.receiptThumb = "🧾";
+
+      // 抽出
+      const amt    = extractAmountFromReceipt(baseText);
+      const taxRaw = extractTaxFromReceipt(baseText);
+      const vendor = extractVendorFromReceipt(baseText);
+      const pay    = extractPaymentFromReceipt(baseText);
+      const date   = extractDateFromReceipt(baseText) || todayKey();
+      const aiCands = classifyExpense(`${baseText} ${memo}`);
+      const top    = aiCands && aiCands[0];
+
+      draft = newEmptyExpenseDraft();
+      draft.receiptThumb   = "🧾";
       draft.receiptDataUrl = ctx.dataUrl;
-      if (baseText) {
-        draft.ocrText = `[実OCR読取 (Tesseract.js)]\n--------------------\n${baseText}`;
-      } else if (memo) {
-        draft.ocrText = `[メモテキスト (画像OCR結果なし)]\n--------------------\n${memo}`;
+      draft.date           = date;
+      draft.vendor         = vendor;        // 不明時は空欄 (要確認)
+      draft.amount         = amt.amount;    // 0 のまま空欄を許容
+      draft.paymentMethod  = pay;           // 不明時は空欄
+      // 消費税: OCRから直接拾えればそれを最優先。高信頼な合計のみ自動逆算 (10%税込前提)。
+      if (taxRaw > 0) {
+        draft.taxAmount = taxRaw;
+      } else if (amt.amount > 0 && amt.confidence === "high") {
+        draft.taxAmount = Math.round(amt.amount * 10 / 110);
       } else {
-        draft.ocrText = "[OCR結果なし]";
+        draft.taxAmount = 0;
       }
-      draft.aiCandidates = classifyExpense(`${baseText} ${memo}`);
+      draft.aiCandidates = aiCands;
+      // 内容欄は OCR 全文ではなく、購入先/カテゴリから生成した短い要約。
+      draft.content = summarizeReceiptContent(vendor, top, !!baseText || !!memo);
+      // OCR原文は専用欄 (登録レコードの ocrText)
+      draft.ocrText = baseText
+        ? `[実OCR読取 (Tesseract.js)]\n--------------------\n${baseText}`
+        : (memo ? `[メモテキスト (画像OCR結果なし)]\n--------------------\n${memo}` : "[OCR結果なし]");
+      draft.memoText = memo;
+      // 低信頼度フラグ: 確認画面で警告バナー表示 / 必須項目バリデーション強化
+      draft.lowConfidence = (
+        amt.confidence === "low" ||
+        amt.confidence === "none" ||
+        !vendor
+      );
     } else if (ctx && ctx.sample) {
       // === サンプル系統 (サンプルカード選択時のみ) ===
+      // サンプルレシートは固定OCRテキスト + 既知の正解値を使う (デモ用)。
       source = "sample";
       const s = ctx.sample;
       const baseText = ocrEdited || ctx.ocrText || s.ocrText || "";
-      draft = parseExpenseText(`${baseText}\n${memo}`.trim());
-      draft.receiptThumb = s.icon || "🧾";
+      draft = newEmptyExpenseDraft();
+      draft.receiptThumb   = s.icon || "🧾";
       draft.receiptDataUrl = "";
       draft.ocrText = `[サンプルOCR読取]\n--------------------\n${baseText}`;
-      // サンプル既定値で空欄のみ補完 (編集で値が壊れるのを防ぐ)
-      if (!draft.vendor)        draft.vendor = s.vendor || "";
-      if (!draft.amount)        draft.amount = s.amount || 0;
-      if (!draft.taxAmount)     draft.taxAmount = s.taxAmount || Math.round((s.amount || 0) * 10 / 110);
-      if (!draft.content)       draft.content = s.content || "";
-      if (!draft.paymentMethod) draft.paymentMethod = s.paymentMethod || "";
-      if (!draft.date)          draft.date = todayKey();
-      // AI分類: 編集ありならテキストから再分類、なければサンプルの既定値
-      draft.aiCandidates = ocrEdited
-        ? classifyExpense(`${baseText} ${memo}`)
-        : (s.aiCandidates || classifyExpense(`${s.ocrText} ${memo}`));
+      draft.memoText = memo;
+
+      if (ocrEdited) {
+        // ユーザーがサンプルOCRテキストを編集した場合は、編集後テキストから再抽出
+        const amt    = extractAmountFromReceipt(baseText);
+        const taxRaw = extractTaxFromReceipt(baseText);
+        draft.vendor        = extractVendorFromReceipt(baseText) || s.vendor || "";
+        draft.amount        = amt.amount || s.amount || 0;
+        draft.taxAmount     = taxRaw || s.taxAmount || Math.round((s.amount || 0) * 10 / 110);
+        draft.paymentMethod = extractPaymentFromReceipt(baseText) || s.paymentMethod || "";
+        draft.date          = extractDateFromReceipt(baseText) || todayKey();
+        draft.aiCandidates  = classifyExpense(`${baseText} ${memo}`);
+        draft.content       = s.content || summarizeReceiptContent(draft.vendor, draft.aiCandidates[0], true);
+      } else {
+        // 既定: サンプル正解値をそのまま採用
+        draft.vendor        = s.vendor || "";
+        draft.amount        = s.amount || 0;
+        draft.taxAmount     = s.taxAmount || Math.round((s.amount || 0) * 10 / 110);
+        draft.paymentMethod = s.paymentMethod || "";
+        draft.date          = todayKey();
+        draft.aiCandidates  = s.aiCandidates || classifyExpense(`${s.ocrText} ${memo}`);
+        draft.content       = s.content || "";
+      }
+      draft.lowConfidence = false;
     } else if (memo || ocrEdited) {
       // === メモのみ系統 (画像なし) ===
       source = "memo";
@@ -1668,11 +1867,17 @@
 
     draft.ocrSource = source; // 確認画面・詳細モーダル等で参照可能なフラグ
 
-    // AI分類スナップショット & 初期選択 (空でも雑費を埋め込まない: source==="empty"の時はカテゴリも空)
+    // AI分類スナップショット & 初期選択
+    //   - source === "empty"        : 全項目空欄 (サンプル経費で埋めない)
+    //   - draft.lowConfidence === true : AIの推定はスナップショットとして残しつつ、現在カテゴリは空にして店長に手動選択させる
+    //   - それ以外                   : top候補を自動選択 (なければ雑費)
     if (opts && opts.requireOnly === "full") {
       const topCat = draft.aiCandidates && draft.aiCandidates[0] && draft.aiCandidates[0].cat;
       if (source === "empty") {
         draft.aiCategory = "";
+        draft.category   = "";
+      } else if (draft.lowConfidence) {
+        draft.aiCategory = topCat || "";
         draft.category   = "";
       } else {
         draft.aiCategory = topCat || "雑費";
@@ -1685,6 +1890,18 @@
   // ================== v3.1: 経費 確認画面 ==================
   function renderExpenseConfirm() {
     if (!draftExpense) return;
+
+    // v3.17.2: 低信頼度バナー表示の切り替え
+    const banner = $("#expenseAiBanner");
+    if (banner) {
+      if (draftExpense.lowConfidence) {
+        banner.classList.add("low-confidence");
+        banner.innerHTML = "⚠ <strong>OCRの読み取り精度が低いため、金額・購入先・経費科目を手入力してください。</strong>";
+      } else {
+        banner.classList.remove("low-confidence");
+        banner.innerHTML = "🤖 AIが分類しました。<strong>必ず内容をご確認ください。</strong>";
+      }
+    }
 
     // レシート画像
     const thumb = $("#receiptThumb");
@@ -1764,8 +1981,9 @@
     $("#confExpenseNote").addEventListener("input",       e => draftExpense.note       = e.target.value);
 
     $("#confirmExpenseBtn").addEventListener("click", () => {
-      if (!draftExpense.amount || draftExpense.amount <= 0) { toast("金額を入力してください"); $("#confExpenseAmount").focus(); return; }
+      // v3.17.2: 必須項目バリデーション (購入先・金額・経費科目・支払方法)
       if (!draftExpense.vendor)                              { toast("購入先を入力してください"); $("#confExpenseVendor").focus(); return; }
+      if (!draftExpense.amount || draftExpense.amount <= 0) { toast("金額を確認してください"); $("#confExpenseAmount").focus(); return; }
       if (!draftExpense.category)                            { toast("経費科目を選択してください"); return; }
       if (!draftExpense.paymentMethod)                       { toast("支払方法を選択してください"); return; }
 
