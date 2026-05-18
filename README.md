@@ -2,7 +2,7 @@
 
 **吉田自動車工業 X-Changeタイヤ販売店舗向け プロトタイプ**
 
-> 補助金申請前 説明資料 兼 プロトタイプ仕様書 (v3.17.3 / 開発領域 3分割管理(領域A/B/C)・保守性向上版)
+> 補助金申請前 説明資料 兼 プロトタイプ仕様書 (v3.17.4 / Google スプレッドシート 自動連携 (Apps Script) 追加版)
 > **店舗側はスマートフォン操作 / 本社側はPC操作を想定。スマホでも本社側の確認が可能。**
 > **売上音声入力はスマホ標準キーボードのマイクを利用するため、音声認識API料金は不要です。**
 > **経費レシートOCRは Tesseract.js によるブラウザ内処理のためAPIキーは不要、画像は外部送信されません（v3.17）。**
@@ -355,6 +355,90 @@
 | CSV出力画面 (H6) | 会計ソフト連携・補助金申請資料用にCSVをダウンロードできます |
 
 これらの説明文は、補助金申請担当者がスクリーンショットを撮ったとき、その画面が何の機能を表しているか **一目で分かる** ように配置されています。
+
+---
+
+### 10-1. Google スプレッドシート連携（v3.17.4 新規）
+
+> 📡 **売上登録時に Google スプレッドシートへ自動送信**
+> 「確認して登録」を押すと、既存の localStorage 保存に加え、Google Apps Script Web アプリ経由で Google スプレッドシートにも 1行追記されます。
+
+#### 設定
+
+`app.js` 冒頭の `XCHANGE_SHEETS_CONFIG` で制御します。
+
+```javascript
+const XCHANGE_SHEETS_CONFIG = {
+  enabled: true,
+  endpoint: 'https://script.google.com/macros/s/.../exec',
+  token:    'XCHANGE_TOKEN_2026'
+};
+```
+
+- `enabled: false` で送信を無効化（ローカル保存のみで動作）
+- `endpoint` は Apps Script ウェブアプリの公開URL（アクセスは「全員」「自分として実行」推奨）
+- `token` は Apps Script 側 `doPost(e)` で照合する共有秘密
+
+#### Apps Script 側で受け取る JSON
+
+```json
+{
+  "action": "addSale",
+  "token":  "XCHANGE_TOKEN_2026",
+  "payload": {
+    "saleDate":      "2026-05-18",
+    "storeName":     "吉田自動車工業 X-Change本店",
+    "staffName":     "店長",
+    "customerName":  "井上様",
+    "sellerName":    "店長",
+    "saleCategory":  "新品タイヤ販売,タイヤ交換工賃",
+    "productName":   "ヨコハマ ブルーアース",
+    "tireSize":      "185/65R15",
+    "quantity":      4,
+    "unitPrice":     13500,
+    "totalAmount":   54000,
+    "paymentMethod": "現金",
+    "carModel":      "ノート",
+    "carNumber":     "品川 500 さ 22-22",
+    "workContent":   "新品タイヤ販売、バランス調整",
+    "memo":          "",
+    "overseasSale":  "",
+    "confirmStatus": "未確認"
+  }
+}
+```
+
+CORS preflight を避けるため `Content-Type: text/plain;charset=utf-8` で送信します。Apps Script 側は `JSON.parse(e.postData.contents)` で受け取れます。
+
+#### 送信状況の追跡（`sheetsSyncStatus`）
+
+各売上レコードに同期状況フラグが付与されます。
+
+| 状態 | 意味 |
+|---|---|
+| `pending` | 未送信（登録直後の初期値） |
+| `synced`  | 送信成功（Apps Script から 200 応答） |
+| `failed`  | 送信失敗（オフライン / エンドポイント未設定 / トークン不一致 等。`sheetsSyncError` に失敗理由を保存） |
+
+#### 画面表示
+
+| タイミング | 表示 |
+|---|---|
+| 送信成功 | `Googleスプレッドシートへ登録しました` (トースト) |
+| 送信失敗 | `Googleスプレッドシートへの送信に失敗しました。ローカルには登録されています。` (トースト) |
+| 同期中 | ユーザーは登録完了画面を見ており、非同期で送信が進行 |
+
+#### 既存機能への影響
+
+> ⚠ **送信失敗時も既存機能は壊れません。**
+> Sheets 送信は fire-and-forget で非同期実行され、結果は `sheetsSyncStatus` フラグに記録されるのみです。localStorage 保存・店舗側売上一覧・本社側売上一覧・月次集計・CSV出力は **全て通常通り動作** します。
+
+#### 本番化時の拡張
+
+- 経費レコードへの拡張（`action: "addExpense"` で同様に送信）
+- 確認/修正/月次締めイベントの送信（`action: "updateStatus"`）
+- 失敗時の自動リトライキュー（オフライン時の蓄積送信）
+- Apps Script でのトークン検証 + ログ記録 + Drive へのレシート画像保管
 
 ---
 
@@ -994,6 +1078,7 @@ X-change/
 | v3.17.1 | 実OCRとサンプルOCRの **厳密分離** を強化。実画像アップ時は絶対にサンプル経費データへフォールバックしない（OCRが空文字を返しても項目は空欄維持）。`_buildDraftFromUpload()` を実OCR/サンプル/メモ/空 の4系統に明示分岐し `draft.ocrSource` を必須化。画面上部に常時表示の **OCR利用状況チップ**（未読取/実OCR/サンプル/メモ/読取中）と画面下部の **デバッグ表示**（ソース・テキスト長・検出した購入先/金額/分類）を追加。`parseExpenseText()` の購入先候補にコンビニ（セブン-イレブン/ローソン/ファミマ/ミニストップ/イオン他）、支払方法に Master/JCB/AMEX/QR決済（PayPay/d払い/au PAY/楽天ペイ等）/釣銭/お預り を追加。金額検出を「総合計/合計/税込/総額/請求金額」優先 → 漢数字 → 全候補から最大値の3段階に強化。 |
 | v3.17.2 | OCR結果の安全な扱いを徹底。OCR全文を「内容」欄や「金額」欄にそのまま流し込まないようにし、専用の `extractAmountFromReceipt()` `extractTaxFromReceipt()` `extractVendorFromReceipt()` `extractPaymentFromReceipt()` `summarizeReceiptContent()` を新規実装。金額抽出を **キーワード優先 7段階**（総合計/合計（税込）/税込合計 → お支払金額/請求金額 → 合計（小計を除外・最後の出現） → 税込 → クレジット支払 → 現金/お預り → ¥/円マーク付き数字の最大値）に再構成し、税率（8/10）・電話番号・伝票番号・50円未満のノイズ数字を採用しない。消費税は `消費税等` / `税額` / `内消費税` / `消費税(8%)` / `消費税(10%)` キーワード直近のみ採用。内容欄には OCR 全文ではなく **短い要約**（「ガソリン代」「<購入先>購入分」「レシート内容 要確認」等）のみを入れる。低信頼度時は AI経費科目の自動選択をスキップし、確認画面に **「⚠ OCRの読み取り精度が低いため、金額・購入先・経費科目を手入力してください。」** バナーを表示。経費登録/上り/確認画面に常時 **「ブラウザOCRはレシートの角度・明るさ・文字の小ささにより誤認識する場合があります」** の注意書きを追加。Safari 16.3 以前の lookbehind 非対応環境でも壊れないよう正規表現を分割。購入先候補に 7&i / オートバックス / イエローハット / イオン / ヨーカドー / ライフ を追加。 |
 | v3.17.3 | 開発領域を **3領域に分割管理**（領域A: 売上音声入力・店舗側操作 ／ 領域B: 経費OCR・AI分類 ／ 領域C: 本社確認・月次集計・権限管理）。README §4-3 に領域分割の趣旨・対象機能・主なファイル位置・領域間依存関係・修正時チェックリストを明記。`app.js` 冒頭ヘッダコメントと主要セクション境界（AI音声パーサ層 / 経費パーサ・OCR抽出器 / 共通基盤 / 領域A店舗UI / 領域B経費UI / 領域C本社UI）に `▼▼▼ 領域X: ... ▼▼▼` / `▲▲▲ 領域X: ... (END) ▲▲▲` ディバイダコメントを追加。コードロジックは無変更。経費OCR修正時に売上音声入力を、本社機能修正時に店舗機能を、それぞれ壊さないための保守ガードを文書化。 |
+| v3.17.4 | **Google スプレッドシート連携** を追加（Apps Script Web App 経由・APIキー不要・Google Cloud 設定不要）。`XCHANGE_SHEETS_CONFIG` 定数（enabled / endpoint / token）と `sendSaleToSheets()` 共通ヘルパを実装。売上「確認して登録」押下時、localStorage 保存後に fire-and-forget で `action: "addSale"` を Apps Script へ POST。payload は 18項目（saleDate / storeName / staffName / customerName / sellerName / saleCategory / productName / tireSize / quantity / unitPrice / totalAmount / paymentMethod / carModel / carNumber / workContent / memo / overseasSale / confirmStatus）。各売上レコードに `sheetsSyncStatus` (`pending`/`synced`/`failed`) を追加。送信成功/失敗時にそれぞれ「Googleスプレッドシートへ登録しました」「Googleスプレッドシートへの送信に失敗しました。ローカルには登録されています。」をトースト表示。CORS preflight 回避のため `Content-Type: text/plain` で送信。送信失敗時も localStorage 保存・店舗側/本社側 売上一覧・月次集計・CSV出力は通常通り動作（既存機能を壊さない）。詳細は §10-1。 |
 
 ---
 

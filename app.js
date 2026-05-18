@@ -83,6 +83,18 @@
     "loading":                  "読込中",
     "done":                     "完了"
   };
+  // ===== v3.17.4: Google スプレッドシート連携 (Apps Script Web App) =====
+  // 売上登録時に Google Apps Script Web アプリへ POST 送信し、Sheets に追記する。
+  // - enabled=false にすると送信を無効化（ローカル保存のみで動作）。
+  // - endpoint は Apps Script の「ウェブアプリ」公開URL。
+  // - token は Apps Script 側で照合する共有秘密 (送信時 body に同梱)。
+  // 送信に失敗しても localStorage 保存は維持される (sheetsSyncStatus="failed")。
+  const XCHANGE_SHEETS_CONFIG = {
+    enabled: true,
+    endpoint: 'https://script.google.com/macros/s/AKfycbxxW7Bq-i0EF9IG2lokJBdPwLe-VFqtNkfpgp3lx-2WIDN72qfSAWQdeesO247k3PDG/exec',
+    token: 'XCHANGE_TOKEN_2026'
+  };
+
   // ===== v3: 既知の車種マスタ（AI解析用） =====
   const CAR_MODELS = [
     "プリウス","アクア","ヴィッツ","ヤリス","カローラ","ハリアー","RAV4",
@@ -1027,6 +1039,60 @@
   //   3領域すべてが参照する。スキーマ変更時は領域A・B・C 全画面の影響を確認
   //   詳細は README §6 データ構造
 
+  // ===== v3.17.4: 外部連携 — Google スプレッドシート (Apps Script Web App) =====
+  // 売上レコードを Apps Script Web App へ POST 送信する fire-and-forget ヘルパ。
+  // CORS preflight を避けるため Content-Type は text/plain (Apps Script doPost は
+  // e.postData.contents を JSON.parse して受け取れる)。
+  // 戻り値: Promise<{ ok: boolean, reason?: string }>
+  function sendSaleToSheets(rec) {
+    if (!XCHANGE_SHEETS_CONFIG || !XCHANGE_SHEETS_CONFIG.enabled || !XCHANGE_SHEETS_CONFIG.endpoint) {
+      return Promise.resolve({ ok: false, reason: 'disabled' });
+    }
+    const payload = {
+      saleDate:      rec.date || "",
+      storeName:     rec.storeName || "",
+      staffName:     rec.staff || "",
+      customerName:  rec.customer || "",
+      sellerName:    rec.sellerName || rec.staff || "",
+      saleCategory:  Array.isArray(rec.salesCategories) ? rec.salesCategories.join(",") : (rec.salesCategories || ""),
+      productName:   rec.productName || "",
+      tireSize:      rec.tireSize || "",
+      quantity:      Number(rec.qty || 0),
+      unitPrice:     Number(rec.unitPrice || 0),
+      totalAmount:   Number(rec.total || 0),
+      paymentMethod: rec.paymentMethod || "",
+      carModel:      rec.carModel || "",
+      carNumber:     rec.carNumber || "",
+      workContent:   rec.workContent || "",
+      memo:          rec.note || "",
+      overseasSale:  rec.overseasSale || "",
+      confirmStatus: rec.status || ""
+    };
+    const body = JSON.stringify({
+      action: 'addSale',
+      token:  XCHANGE_SHEETS_CONFIG.token,
+      payload: payload
+    });
+    return fetch(XCHANGE_SHEETS_CONFIG.endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: body
+    }).then(function (resp) {
+      if (!resp.ok) return { ok: false, reason: 'http_' + resp.status };
+      // Apps Script Web App は JSON か HTML で応答することが多い。サーバ側のエラーフラグが
+      // あれば検出するが、無くても resp.ok のみで成功扱いとする。
+      return resp.text().then(function (text) {
+        try {
+          var json = JSON.parse(text);
+          if (json && json.ok === false) return { ok: false, reason: json.error || 'server_error' };
+        } catch (_e) { /* JSON 以外は無視 */ }
+        return { ok: true };
+      }).catch(function () { return { ok: true }; });
+    }).catch(function (err) {
+      return { ok: false, reason: String(err && err.message || err) };
+    });
+  }
+
   // ================== 状態 ==================
   let records = loadAll();
   let currentRole = "store";
@@ -1422,7 +1488,9 @@
         paymentMethod: draftSale.paymentMethod,
         note: draftSale.note || "",
         voiceTranscript: draftSale.voiceTranscript || "",
-        status: "未確認"
+        status: "未確認",
+        // v3.17.4: Google スプレッドシート同期状況 (pending → synced / failed)
+        sheetsSyncStatus: "pending"
       };
       records.push(rec); saveAll(records);
       $("#doneSalesAmount").textContent = yen(rec.total);
@@ -1431,6 +1499,25 @@
       // 音声画面のリセット (v3.11: micBtn は廃止、textareaのみクリア)
       $("#voiceTranscript").value = "";
       renderAll();
+
+      // v3.17.4: Google スプレッドシートへ非同期送信 (fire-and-forget)
+      // localStorage 保存と画面遷移は既に完了済み。送信成功/失敗は toast で通知する。
+      // 送信失敗時も sheetsSyncStatus="failed" として localStorage に残り、店舗側/本社側
+      // 一覧・月次集計・CSV出力は全て通常通り動作する。
+      sendSaleToSheets(rec).then(function (result) {
+        var target = records.find(function (r) { return r.id === rec.id; });
+        if (!target) return; // データ初期化等で消えていれば何もしない
+        if (result && result.ok) {
+          target.sheetsSyncStatus = "synced";
+          saveAll(records);
+          toast("Googleスプレッドシートへ登録しました");
+        } else {
+          target.sheetsSyncStatus = "failed";
+          target.sheetsSyncError = (result && result.reason) || "unknown";
+          saveAll(records);
+          toast("Googleスプレッドシートへの送信に失敗しました。ローカルには登録されています。");
+        }
+      });
     });
   }
 
