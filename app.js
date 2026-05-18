@@ -1040,14 +1040,45 @@
   //   詳細は README §6 データ構造
 
   // ===== v3.17.4: 外部連携 — Google スプレッドシート (Apps Script Web App) =====
-  // 売上レコードを Apps Script Web App へ POST 送信する fire-and-forget ヘルパ。
-  // CORS preflight を避けるため Content-Type は text/plain (Apps Script doPost は
-  // e.postData.contents を JSON.parse して受け取れる)。
+  // Apps Script Web App へ POST する fire-and-forget の共通コア。CORS preflight 回避のため
+  // Content-Type は text/plain (Apps Script doPost は e.postData.contents を JSON.parse 可)。
   // 戻り値: Promise<{ ok: boolean, reason?: string }>
-  function sendSaleToSheets(rec) {
+  //
+  // 対応する action / 送信先シート:
+  //   addSale     → 01_売上明細  (sendSaleToSheets)
+  //   addExpense  → 02_経費明細  (sendExpenseToSheets)
+  //   addPurchase → 03_仕入明細  (sendPurchaseToSheets ・ 専用画面追加時に有効化)
+  function _postToSheets(action, payload) {
     if (!XCHANGE_SHEETS_CONFIG || !XCHANGE_SHEETS_CONFIG.enabled || !XCHANGE_SHEETS_CONFIG.endpoint) {
       return Promise.resolve({ ok: false, reason: 'disabled' });
     }
+    const body = JSON.stringify({
+      action:  action,
+      token:   XCHANGE_SHEETS_CONFIG.token,
+      payload: payload
+    });
+    return fetch(XCHANGE_SHEETS_CONFIG.endpoint, {
+      method:  'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body:    body
+    }).then(function (resp) {
+      if (!resp.ok) return { ok: false, reason: 'http_' + resp.status };
+      // Apps Script Web App は JSON か HTML で応答することが多い。サーバ側のエラーフラグが
+      // あれば検出するが、無くても resp.ok のみで成功扱いとする。
+      return resp.text().then(function (text) {
+        try {
+          var json = JSON.parse(text);
+          if (json && json.ok === false) return { ok: false, reason: json.error || 'server_error' };
+        } catch (_e) { /* JSON 以外は無視 */ }
+        return { ok: true };
+      }).catch(function () { return { ok: true }; });
+    }).catch(function (err) {
+      return { ok: false, reason: String(err && err.message || err) };
+    });
+  }
+
+  // --- 売上 → 01_売上明細 (action: addSale) ---
+  function sendSaleToSheets(rec) {
     const payload = {
       saleDate:      rec.date || "",
       storeName:     rec.storeName || "",
@@ -1068,29 +1099,56 @@
       overseasSale:  rec.overseasSale || "",
       confirmStatus: rec.status || ""
     };
-    const body = JSON.stringify({
-      action: 'addSale',
-      token:  XCHANGE_SHEETS_CONFIG.token,
-      payload: payload
-    });
-    return fetch(XCHANGE_SHEETS_CONFIG.endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: body
-    }).then(function (resp) {
-      if (!resp.ok) return { ok: false, reason: 'http_' + resp.status };
-      // Apps Script Web App は JSON か HTML で応答することが多い。サーバ側のエラーフラグが
-      // あれば検出するが、無くても resp.ok のみで成功扱いとする。
-      return resp.text().then(function (text) {
-        try {
-          var json = JSON.parse(text);
-          if (json && json.ok === false) return { ok: false, reason: json.error || 'server_error' };
-        } catch (_e) { /* JSON 以外は無視 */ }
-        return { ok: true };
-      }).catch(function () { return { ok: true }; });
-    }).catch(function (err) {
-      return { ok: false, reason: String(err && err.message || err) };
-    });
+    return _postToSheets('addSale', payload);
+  }
+
+  // --- 経費 → 02_経費明細 (action: addExpense) ---
+  // v3.17.5: 経費登録時に呼び出す。レシート画像 URL は dataURL をそのまま渡す (size>0 のみ)。
+  function sendExpenseToSheets(rec) {
+    const payload = {
+      expenseDate:         rec.date || "",
+      storeName:           rec.storeName || "",
+      staffName:           rec.staff || "",
+      vendor:              rec.vendor || "",
+      content:             rec.content || "",
+      amount:              Number(rec.amount || 0),
+      tax:                 Number(rec.taxAmount || 0),
+      paymentMethod:       rec.paymentMethod || "",
+      aiCategory:          rec.aiCategory || "",
+      hqCategory:          rec.hqCategory || rec.category || "",
+      receiptImageUrl:     rec.receiptDataUrl || "",
+      ocrText:             rec.ocrText || "",
+      memo:                rec.note || "",
+      confirmStatus:       rec.status || "",
+      hasRevisionRequest:  rec.status === "修正依頼" ? "あり" : "なし",
+      source:              rec.ocrSource || rec.source || "store-expense-upload"
+    };
+    return _postToSheets('addExpense', payload);
+  }
+
+  // --- 仕入 → 03_仕入明細 (action: addPurchase) ---
+  // v3.17.5: 現プロトタイプには専用「仕入登録画面」が無いため未使用。
+  //          将来 type:"purchase" 画面を追加した際に呼び出す。
+  //          payload キーは Apps Script の 03_仕入明細 列定義に対応。
+  function sendPurchaseToSheets(rec) {
+    const payload = {
+      purchaseDate:    rec.date || "",
+      storeName:       rec.storeName || "",
+      staffName:       rec.staff || "",
+      vendor:          rec.vendor || "",
+      productName:     rec.productName || "",
+      tireSize:        rec.tireSize || "",
+      quantity:        Number(rec.qty || 0),
+      unitPrice:       Number(rec.unitPrice || 0),
+      totalAmount:     Number(rec.total || rec.amount || 0),
+      paymentMethod:   rec.paymentMethod || "",
+      invoiceNo:       rec.invoiceNo || "",
+      paymentDueDate:  rec.paymentDueDate || "",
+      paymentStatus:   rec.paymentStatus || "",
+      memo:            rec.note || "",
+      source:          rec.source || "store-purchase-upload"
+    };
+    return _postToSheets('addPurchase', payload);
   }
 
   // ================== 状態 ==================
@@ -2158,7 +2216,11 @@
         receiptThumb: draftExpense.receiptThumb || "🧾",
         receiptDataUrl: draftExpense.receiptDataUrl || "",
         aiCandidates: draftExpense.aiCandidates || [],
-        status: "未確認"
+        // v3.17.2: OCRソース (real/sample/memo/empty) と低信頼度フラグも記録
+        ocrSource: draftExpense.ocrSource || "",
+        status: "未確認",
+        // v3.17.5: Google スプレッドシート同期状況 (pending → synced / failed)
+        sheetsSyncStatus: "pending"
       };
       records.push(rec); saveAll(records);
       $("#doneExpenseAmount").textContent = yen(rec.amount);
@@ -2166,6 +2228,25 @@
       draftExpense = null;
       _resetExpenseUploadUI();
       renderAll();
+
+      // v3.17.5: Google スプレッドシートへ非同期送信 (fire-and-forget)
+      // localStorage 保存と画面遷移は既に完了済み。送信成功/失敗は toast で通知する。
+      // 送信失敗時も sheetsSyncStatus="failed" として localStorage に残り、店舗側/本社側
+      // 経費一覧・月次集計・CSV出力は全て通常通り動作する。
+      sendExpenseToSheets(rec).then(function (result) {
+        var target = records.find(function (r) { return r.id === rec.id; });
+        if (!target) return;
+        if (result && result.ok) {
+          target.sheetsSyncStatus = "synced";
+          saveAll(records);
+          toast("Googleスプレッドシートへ経費を登録しました");
+        } else {
+          target.sheetsSyncStatus = "failed";
+          target.sheetsSyncError = (result && result.reason) || "unknown";
+          saveAll(records);
+          toast("Googleスプレッドシートへの経費送信に失敗しました。ローカルには登録されています。");
+        }
+      });
     });
   }
 
