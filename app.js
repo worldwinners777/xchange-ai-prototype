@@ -348,6 +348,22 @@
   // ================== ユーティリティ ==================
   function uid() { return "id-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
   function yen(n) { return "¥" + Number(n || 0).toLocaleString("ja-JP"); }
+
+  // v3.17.6: 金額入力欄の正規化パーサ
+  //   全角数字 (０-９) → 半角、¥ ￥ , ， 円 空白 を除去して数値に変換。
+  //   対応する入力例: "3000" "3,000" "￥3000" "¥3,000" "１５０００" "15,000円"
+  //   不正な値は 0 を返す。
+  function parseAmountInput(raw) {
+    if (raw == null) return 0;
+    let s = String(raw).trim();
+    if (!s) return 0;
+    // 全角数字を半角に
+    s = s.replace(/[０-９]/g, function (ch) { return String.fromCharCode(ch.charCodeAt(0) - 0xFEE0); });
+    // 通貨記号・区切り・接尾辞・空白を除去
+    s = s.replace(/[¥￥,，\s円]/g, "");
+    const n = Number(s);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  }
   function fmtDate(iso) {
     const d = new Date(iso);
     return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
@@ -2179,62 +2195,98 @@
   }
 
   function setupExpenseConfirm() {
-    $("#confExpenseAmount").addEventListener("input",     e => draftExpense.amount     = Number(e.target.value || 0));
+    // v3.17.6: 入力リスナーは parseAmountInput で正規化して draftExpense に保存
+    //   (バリデーション・AI候補クリック後の表示更新で使われる)
+    //   ただし最終的な登録値は「この内容で登録」押下時に DOM から再取得する。
+    $("#confExpenseAmount").addEventListener("input",     e => draftExpense.amount     = parseAmountInput(e.target.value));
     $("#confExpenseVendor").addEventListener("input",     e => draftExpense.vendor     = e.target.value);
     $("#confExpenseDate").addEventListener("input",       e => draftExpense.date       = e.target.value);
     $("#confExpenseStoreName").addEventListener("input",  e => draftExpense.storeName  = e.target.value);
     $("#confExpenseStaff").addEventListener("input",      e => draftExpense.staff      = e.target.value);
-    $("#confExpenseTax").addEventListener("input",        e => draftExpense.taxAmount  = Number(e.target.value || 0));
+    $("#confExpenseTax").addEventListener("input",        e => draftExpense.taxAmount  = parseAmountInput(e.target.value));
     $("#confExpenseContent").addEventListener("input",    e => draftExpense.content    = e.target.value);
     $("#confExpenseNote").addEventListener("input",       e => draftExpense.note       = e.target.value);
 
-    $("#confirmExpenseBtn").addEventListener("click", () => {
-      // v3.17.2: 必須項目バリデーション (購入先・金額・経費科目・支払方法)
-      if (!draftExpense.vendor)                              { toast("購入先を入力してください"); $("#confExpenseVendor").focus(); return; }
-      if (!draftExpense.amount || draftExpense.amount <= 0) { toast("金額を確認してください"); $("#confExpenseAmount").focus(); return; }
-      if (!draftExpense.category)                            { toast("経費科目を選択してください"); return; }
-      if (!draftExpense.paymentMethod)                       { toast("支払方法を選択してください"); return; }
+    // フォーカスを失った時に金額表示を正規化 (例: "3,000円" → "3000")
+    $("#confExpenseAmount").addEventListener("blur",      e => { const v = parseAmountInput(e.target.value); e.target.value = v ? String(v) : ""; draftExpense.amount = v; });
+    $("#confExpenseTax").addEventListener("blur",         e => { const v = parseAmountInput(e.target.value); e.target.value = v ? String(v) : ""; draftExpense.taxAmount = v; });
 
-      const rec = {
+    $("#confirmExpenseBtn").addEventListener("click", () => {
+      // v3.17.6: 登録ボタン押下時点での DOM の値を最優先で読み取り、finalExpenseRecord を組み立てる。
+      //   OCR・AI分類・サンプル値・draftExpense の旧値で finalExpenseRecord の amount を上書きしない。
+      //   localStorage 保存と Google Sheets 送信は同じ finalExpenseRecord を使う。
+      const amountRaw     = $("#confExpenseAmount").value;
+      const taxRaw        = $("#confExpenseTax").value;
+      const vendorRaw     = $("#confExpenseVendor").value;
+      const dateRaw       = $("#confExpenseDate").value;
+      const storeNameRaw  = $("#confExpenseStoreName").value;
+      const staffRaw      = $("#confExpenseStaff").value;
+      const contentRaw    = $("#confExpenseContent").value;
+      const noteRaw       = $("#confExpenseNote").value;
+      const amountFinal   = parseAmountInput(amountRaw);
+      const taxFinal      = parseAmountInput(taxRaw);
+      // 支払方法・カテゴリは画面上で選択中のものを DOM から読み取る (active クラスで判定)
+      const activePay = document.querySelector("#expensePaymentMethods .pay-btn.active");
+      const paymentMethodFinal = activePay ? (activePay.dataset.pay || "") : (draftExpense.paymentMethod || "");
+      const activeCat = document.querySelector("#catCandidates .cat-card.active, #catAll .cat-chip.active");
+      const categoryFinal = activeCat ? (activeCat.dataset.cat || "") : (draftExpense.category || "");
+
+      console.log('[Expense] final amount input value', amountRaw);
+
+      // v3.17.6: 必須項目バリデーション (購入先・金額・経費科目・支払方法)
+      if (!vendorRaw.trim())                      { toast("購入先を入力してください"); $("#confExpenseVendor").focus(); return; }
+      if (!amountFinal || amountFinal <= 0)       { toast("金額を確認してください"); $("#confExpenseAmount").focus(); return; }
+      if (!categoryFinal)                         { toast("経費科目を選択してください"); return; }
+      if (!paymentMethodFinal)                    { toast("支払方法を選択してください"); return; }
+
+      const finalExpenseRecord = {
         id: uid(), type: "expense",
         createdAt: new Date().toISOString(),
-        // v3.1
-        date: draftExpense.date || todayKey(),
-        storeName: draftExpense.storeName || DEFAULT_STORE_NAME,
-        staff: draftExpense.staff || DEFAULT_STAFF,
-        vendor: draftExpense.vendor,
-        content: draftExpense.content || "",
-        amount: Number(draftExpense.amount),
-        taxAmount: Number(draftExpense.taxAmount) || 0,
-        paymentMethod: draftExpense.paymentMethod,
-        // 科目: AI分類は immutable, current category は 店長/本社 が変更可
-        aiCategory: draftExpense.aiCategory || draftExpense.category || "",
-        category: draftExpense.category,
-        // 共通
-        note: draftExpense.note || "",
-        ocrText: draftExpense.ocrText || "",
-        receiptThumb: draftExpense.receiptThumb || "🧾",
+        // ====== 画面入力欄から取得した最終値 (これが最優先) ======
+        date:          dateRaw || todayKey(),
+        storeName:     storeNameRaw || DEFAULT_STORE_NAME,
+        staff:         staffRaw || DEFAULT_STAFF,
+        vendor:        vendorRaw.trim(),
+        content:       contentRaw,
+        amount:        amountFinal,
+        taxAmount:     taxFinal,
+        paymentMethod: paymentMethodFinal,
+        category:      categoryFinal,
+        note:          noteRaw,
+        // ====== 不変スナップショット (OCR/AI分類の記録のみ。最終値の参照には使わない) ======
+        aiCategory:    draftExpense.aiCategory || categoryFinal,
+        aiCandidates:  draftExpense.aiCandidates || [],
+        ocrText:       draftExpense.ocrText || "",
+        ocrSource:     draftExpense.ocrSource || "",
+        receiptThumb:  draftExpense.receiptThumb || "🧾",
         receiptDataUrl: draftExpense.receiptDataUrl || "",
-        aiCandidates: draftExpense.aiCandidates || [],
-        // v3.17.2: OCRソース (real/sample/memo/empty) と低信頼度フラグも記録
-        ocrSource: draftExpense.ocrSource || "",
-        status: "未確認",
-        // v3.17.5: Google スプレッドシート同期状況 (pending → synced / failed)
-        sheetsSyncStatus: "pending"
+        // ====== ステータス ======
+        status:            "未確認",
+        sheetsSyncStatus:  "pending"
       };
-      records.push(rec); saveAll(records);
-      $("#doneExpenseAmount").textContent = yen(rec.amount);
+
+      console.log('[Expense] final expense record', finalExpenseRecord);
+
+      records.push(finalExpenseRecord); saveAll(records);
+      $("#doneExpenseAmount").textContent = yen(finalExpenseRecord.amount);
       goScreen("store-expense-done");
       draftExpense = null;
       _resetExpenseUploadUI();
       renderAll();
 
-      // v3.17.5: Google スプレッドシートへ非同期送信 (fire-and-forget)
-      // localStorage 保存と画面遷移は既に完了済み。送信成功/失敗は toast で通知する。
-      // 送信失敗時も sheetsSyncStatus="failed" として localStorage に残り、店舗側/本社側
-      // 経費一覧・月次集計・CSV出力は全て通常通り動作する。
-      sendExpenseToSheets(rec).then(function (result) {
-        var target = records.find(function (r) { return r.id === rec.id; });
+      // v3.17.5/.6: Google スプレッドシートへ非同期送信 (fire-and-forget)
+      //   payload.amount は必ず finalExpenseRecord.amount を使う (sendExpenseToSheets 経由で送信)。
+      //   送信失敗時も sheetsSyncStatus="failed" として localStorage に残り、店舗側/本社側
+      //   経費一覧・月次集計・CSV出力は通常通り動作する。
+      console.log('[Sheets] addExpense sending', {
+        action: 'addExpense',
+        amount: finalExpenseRecord.amount,
+        vendor: finalExpenseRecord.vendor,
+        category: finalExpenseRecord.category,
+        recordId: finalExpenseRecord.id
+      });
+      sendExpenseToSheets(finalExpenseRecord).then(function (result) {
+        var target = records.find(function (r) { return r.id === finalExpenseRecord.id; });
         if (!target) return;
         if (result && result.ok) {
           target.sheetsSyncStatus = "synced";
