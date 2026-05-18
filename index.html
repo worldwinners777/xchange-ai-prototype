@@ -157,26 +157,11 @@
           </div>
         </div>
 
-        <!-- v3.14: おすすめの話し方 (項目名形式・番号なし) -->
+        <!-- v3.17.7: 本番画面では固定サンプル例は表示せず、説明文と注意のみを残す -->
         <div class="voice-tips-block">
-          <div class="vtb-title">💡 おすすめの話し方</div>
           <div class="vtb-desc">
-            番号を読む必要はありません。<strong>項目名に続けて、短く区切って話してください。</strong>
+            <strong>項目名に続けて、短く区切って話してください。</strong>
             話し終わったら内容を確認し、必要に応じて手で修正してください。
-          </div>
-          <div class="vtb-list">
-            <div class="vtb-item"><span class="vtb-label">お客様名:</span>高橋様</div>
-            <div class="vtb-item"><span class="vtb-label">売上区分:</span>新品タイヤ販売</div>
-            <div class="vtb-item"><span class="vtb-label">商品名:</span>ヨコハマ アイスガード</div>
-            <div class="vtb-item"><span class="vtb-label">タイヤサイズ:</span>195/65R15</div>
-            <div class="vtb-item"><span class="vtb-label">数量:</span>4本</div>
-            <div class="vtb-item"><span class="vtb-label">単価:</span>17,000円</div>
-            <div class="vtb-item"><span class="vtb-label">合計金額:</span>68,000円</div>
-            <div class="vtb-item"><span class="vtb-label">支払方法:</span>現金</div>
-            <div class="vtb-item"><span class="vtb-label">車種:</span>プリウス</div>
-            <div class="vtb-item"><span class="vtb-label">車両番号:</span>品川300あ1234</div>
-            <div class="vtb-item"><span class="vtb-label">作業内容:</span>タイヤ交換、バランス調整、廃タイヤ処分あり</div>
-            <div class="vtb-item"><span class="vtb-label">備考:</span>売掛なし</div>
           </div>
           <div class="vtb-note">
             ⚠️ <strong>車両番号は音声認識で間違いやすいため、登録確認画面で必ず確認してください。</strong>必要に応じて手入力で修正できます。
@@ -204,7 +189,6 @@
           <button class="btn primary" id="useKeyboardVoiceBtn" type="button">
             📱 スマホ音声入力を使う
           </button>
-          <button class="btn ghost small" id="sampleVoiceBtn" type="button">📋 サンプル音声を入れる</button>
           <button class="btn ghost small" id="templateVoiceBtn" type="button">📝 入力テンプレートを入れる</button>
           <button class="btn ghost small" id="clearVoiceBtn" type="button">クリア</button>
         </div>
@@ -356,12 +340,12 @@
         <div class="screen-header-title">経費 レシート登録</div>
       </div>
       <div class="screen-pad">
-        <p class="biz-note">📷 レシート画像の <strong>実OCR読取</strong>（Tesseract.js / ブラウザ内処理・APIキー不要）と <strong>AIによる経費科目分類</strong> で、入力作業を効率化します。</p>
-        <p class="ocr-caution-note">⚠ ブラウザOCRはレシートの角度・明るさ・文字の小ささにより誤認識する場合があります。<strong>金額・購入先・経費科目は必ず確認してください。</strong></p>
+        <p class="biz-note">本番運用時の登録方法は <strong>① レシートをOCRで読み取る</strong> / <strong>② 手入力で登録する</strong> の2通りです。</p>
+        <p class="ocr-caution-note">OCRは補助機能です。金額や購入先が間違う場合があります。<strong>手入力で登録する場合は、入力した内容がそのまま登録されます。</strong></p>
         <div class="ocr-status-chip" id="ocrSourceStatus" data-state="idle">未読取</div>
 
-        <!-- 1. レシート画像 -->
-        <h3 class="conf-section-title">📷 レシート画像</h3>
+        <!-- ルート①: レシート画像 (OCR読取) -->
+        <h3 class="conf-section-title">① レシートをOCRで読み取る</h3>
         <label class="upload-card" for="receiptInput">
           <div class="upload-icon" aria-hidden="true">📷</div>
           <div class="upload-text">
@@ -376,16 +360,16 @@
           <button class="btn ghost small" id="reUploadBtn">差し替える</button>
         </div>
 
-        <div class="sample-receipts">
+        <!-- v3.17.7: サンプルレシートは開発者用デモのみ。本番表示では非表示 -->
+        <div class="sample-receipts dev-only" hidden>
           <div class="sample-label">サンプルレシートから選ぶ（デモ用・固定OCRテキスト）</div>
           <div class="sample-grid" id="sampleReceipts"></div>
         </div>
 
-        <!-- 2. 経費内容メモ -->
-        <h3 class="conf-section-title">📝 経費内容メモ（任意）</h3>
-        <p class="form-sub">画像が無くても、テキスト入力だけで登録できます。OCR後に補足メモとしても利用できます。</p>
+        <!-- ルート②: 手入力 (テキスト入力で登録) -->
+        <h3 class="conf-section-title">② 手入力で登録する</h3>
+        <p class="form-sub">画像が無くても、購入内容を直接テキストで入力して登録できます。OCRと併用する場合は、OCR読取後の補足メモとしても利用できます。</p>
         <div class="voice-tools">
-          <button class="btn ghost small" id="sampleExpenseTextBtn">📋 サンプル経費テキストを入れる</button>
           <button class="btn ghost small" id="clearExpenseTextBtn">クリア</button>
         </div>
         <textarea id="expenseMemoText" class="form-input voice-textarea" rows="3"
@@ -417,13 +401,11 @@
           <div id="ocrLoadingLabel">OCRで読み取り中…</div>
         </div>
 
-        <!-- アクションバー: 実OCR読取 / サンプルOCR読取 / AI分類 -->
-        <div class="ocr-mode-info">画像をアップロードした場合は <strong>実OCR読取</strong>、サンプルレシートを選んだ場合は <strong>サンプルOCR読取</strong>、画像なしでメモのみの場合は <strong>メモテキスト</strong> を読取結果として扱います。</div>
+        <!-- アクションバー: OCR読取 → 確認画面で手修正可能 -->
         <div class="action-bar">
           <button class="btn ghost" id="ocrReadBtn">🔍 OCR読取</button>
           <button class="btn primary big" id="aiClassifyBtn">🤖 AI分類して確認</button>
         </div>
-        <div class="ocr-debug" id="ocrDebug" hidden></div>
       </div>
     </div>
 

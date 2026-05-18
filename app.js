@@ -1412,13 +1412,17 @@
       }, 50);
     });
 
-    // サンプル音声テキスト投入
-    $("#sampleVoiceBtn").addEventListener("click", () => {
-      const sample = VOICE_SAMPLES[Math.floor(Math.random() * VOICE_SAMPLES.length)];
-      $("#voiceTranscript").value = sample;
-      $("#voiceTranscript").focus();
-      toast("サンプル音声テキストを入れました");
-    });
+    // v3.17.7: サンプル音声テキスト投入ボタンは本番画面では削除済み (開発者デモのみ)。
+    // 要素が存在する場合 (dev mode) のみハンドラを登録する。
+    const _sampleVoiceBtn = $("#sampleVoiceBtn");
+    if (_sampleVoiceBtn) {
+      _sampleVoiceBtn.addEventListener("click", () => {
+        const sample = VOICE_SAMPLES[Math.floor(Math.random() * VOICE_SAMPLES.length)];
+        $("#voiceTranscript").value = sample;
+        $("#voiceTranscript").focus();
+        toast("サンプル音声テキストを入れました");
+      });
+    }
 
     // v3.15: 入力テンプレート投入 (12項目・日付/店舗/担当者は除外)
     $("#templateVoiceBtn").addEventListener("click", () => {
@@ -1811,13 +1815,17 @@
       });
     });
 
-    // 経費内容メモ: サンプル投入 / クリア
-    $("#sampleExpenseTextBtn").addEventListener("click", () => {
-      const s = EXPENSE_VOICE_SAMPLES[Math.floor(Math.random() * EXPENSE_VOICE_SAMPLES.length)];
-      $("#expenseMemoText").value = s;
-      $("#expenseMemoText").focus();
-      toast("サンプル経費テキストを入れました");
-    });
+    // v3.17.7: サンプル経費テキスト投入ボタンは本番画面では削除済み (開発者デモのみ)。
+    // 要素が存在する場合 (dev mode) のみハンドラを登録する。
+    const _sampleExpBtn = $("#sampleExpenseTextBtn");
+    if (_sampleExpBtn) {
+      _sampleExpBtn.addEventListener("click", () => {
+        const s = EXPENSE_VOICE_SAMPLES[Math.floor(Math.random() * EXPENSE_VOICE_SAMPLES.length)];
+        $("#expenseMemoText").value = s;
+        $("#expenseMemoText").focus();
+        toast("サンプル経費テキストを入れました");
+      });
+    }
     $("#clearExpenseTextBtn").addEventListener("click", () => {
       $("#expenseMemoText").value = "";
       $("#expenseMemoText").focus();
