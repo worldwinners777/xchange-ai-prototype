@@ -340,72 +340,167 @@
         <div class="screen-header-title">経費 レシート登録</div>
       </div>
       <div class="screen-pad">
-        <p class="biz-note">本番運用時の登録方法は <strong>① レシートをOCRで読み取る</strong> / <strong>② 手入力で登録する</strong> の2通りです。</p>
-        <p class="ocr-caution-note">OCRは補助機能です。金額や購入先が間違う場合があります。<strong>手入力で登録する場合は、入力した内容がそのまま登録されます。</strong></p>
-        <div class="ocr-status-chip" id="ocrSourceStatus" data-state="idle">未読取</div>
 
-        <!-- ルート①: レシート画像 (OCR読取) -->
-        <h3 class="conf-section-title">① レシートをOCRで読み取る</h3>
-        <label class="upload-card" for="receiptInput">
-          <div class="upload-icon" aria-hidden="true">📷</div>
-          <div class="upload-text">
-            <div class="upload-title">タップして撮影 / 画像を選択</div>
-            <div class="upload-sub">JPEG / PNG / HEIC ・ ブラウザ内でOCR実行（画像は外部送信されません）</div>
+        <!-- v3.17.8: 登録方法 選択 (OCR / 手入力) -->
+        <div id="expenseModePicker">
+          <p class="biz-note">経費登録方法を選んでください。</p>
+          <p class="ocr-caution-note">OCRは補助機能です。金額や購入先が間違う場合があります。<strong>手入力で登録する場合は、入力した内容がそのまま登録されます。</strong></p>
+          <button type="button" class="mode-card" data-mode="ocr">
+            <span class="mc-icon" aria-hidden="true">📸</span>
+            <span class="mc-body">
+              <span class="mc-title">① レシートをOCRで読み取る</span>
+              <span class="mc-desc">レシート画像から文字を読み取り、AIが経費科目を分類します。読み取り結果は登録前に確認・修正できます。</span>
+            </span>
+          </button>
+          <button type="button" class="mode-card" data-mode="manual">
+            <span class="mc-icon" aria-hidden="true">✍️</span>
+            <span class="mc-body">
+              <span class="mc-title">② 手入力で登録する</span>
+              <span class="mc-desc">金額・購入先・内容を手入力します。レシート画像は証憑として任意添付。OCR推定値・サンプル値は使用しません。</span>
+            </span>
+          </button>
+        </div>
+
+        <!-- v3.17.8: OCR モード セクション -->
+        <div id="expenseOcrSection" hidden>
+          <button type="button" class="btn ghost small back-to-mode" data-back-to-mode="">← 登録方法 選択へ戻る</button>
+          <div class="ocr-status-chip" id="ocrSourceStatus" data-state="idle">未読取</div>
+
+          <!-- レシート画像 -->
+          <h3 class="conf-section-title">📷 レシート画像</h3>
+          <label class="upload-card" for="receiptInput">
+            <div class="upload-icon" aria-hidden="true">📷</div>
+            <div class="upload-text">
+              <div class="upload-title">タップして撮影 / 画像を選択</div>
+              <div class="upload-sub">JPEG / PNG / HEIC ・ ブラウザ内でOCR実行（画像は外部送信されません）</div>
+            </div>
+            <input id="receiptInput" type="file" accept="image/*" capture="environment" hidden />
+          </label>
+
+          <div class="receipt-preview" id="receiptPreview" hidden>
+            <img id="receiptImg" alt="レシート" />
+            <button class="btn ghost small" id="reUploadBtn">差し替える</button>
           </div>
-          <input id="receiptInput" type="file" accept="image/*" capture="environment" hidden />
-        </label>
 
-        <div class="receipt-preview" id="receiptPreview" hidden>
-          <img id="receiptImg" alt="レシート" />
-          <button class="btn ghost small" id="reUploadBtn">差し替える</button>
-        </div>
-
-        <!-- v3.17.7: サンプルレシートは開発者用デモのみ。本番表示では非表示 -->
-        <div class="sample-receipts dev-only" hidden>
-          <div class="sample-label">サンプルレシートから選ぶ（デモ用・固定OCRテキスト）</div>
-          <div class="sample-grid" id="sampleReceipts"></div>
-        </div>
-
-        <!-- ルート②: 手入力 (テキスト入力で登録) -->
-        <h3 class="conf-section-title">② 手入力で登録する</h3>
-        <p class="form-sub">画像が無くても、購入内容を直接テキストで入力して登録できます。OCRと併用する場合は、OCR読取後の補足メモとしても利用できます。</p>
-        <div class="voice-tools">
-          <button class="btn ghost small" id="clearExpenseTextBtn">クリア</button>
-        </div>
-        <textarea id="expenseMemoText" class="form-input voice-textarea" rows="3"
-          placeholder="例:本日、ENEOSでガソリン代5,000円を現金で支払い"></textarea>
-
-        <!-- 3. OCR進捗バー（実OCR実行中に表示） -->
-        <div class="ocr-progress-block" id="ocrProgressBlock" hidden>
-          <div class="ocr-progress-head">
-            <span class="ocr-progress-label" id="ocrProgressLabel">OCR準備中…</span>
-            <span class="ocr-progress-percent" id="ocrProgressPercent">0%</span>
+          <!-- v3.17.7: サンプルレシートは開発者用デモのみ。本番表示では非表示 -->
+          <div class="sample-receipts dev-only" hidden>
+            <div class="sample-label">サンプルレシートから選ぶ（デモ用・固定OCRテキスト）</div>
+            <div class="sample-grid" id="sampleReceipts"></div>
           </div>
-          <div class="ocr-progress-bar"><div class="ocr-progress-bar-fill" id="ocrProgressBarFill" style="width:0%"></div></div>
-          <div class="ocr-progress-note">初回は日本語学習モデル（約15MB）をダウンロードします。2回目以降はブラウザキャッシュから瞬時に起動します。</div>
-        </div>
 
-        <!-- 4. OCR結果プレビュー（OCR読取後に表示・編集可） -->
-        <div class="ocr-card" id="ocrPreviewCard" hidden>
-          <div class="ocr-card-header">
-            <div class="ocr-label">🔍 OCR読取結果</div>
-            <span class="ocr-source-badge" id="ocrSourceBadge" data-source="real">実OCR読取</span>
+          <!-- 経費内容メモ (OCR 補助メモ・任意) -->
+          <h3 class="conf-section-title">📝 経費内容メモ（任意）</h3>
+          <p class="form-sub">OCR読取の補助メモとして、購入内容を追加で入力できます。</p>
+          <div class="voice-tools">
+            <button class="btn ghost small" id="clearExpenseTextBtn">クリア</button>
           </div>
-          <p class="ocr-warn-note">⚠ OCR読取はレシート画像の明るさ、手ブレ、文字の向き、印字の薄さにより精度が変わります。読み取り結果は登録前に必ず確認・修正してください。下のテキストは直接編集でき、編集内容に応じて項目プレビューも更新されます。</p>
-          <textarea id="ocrPreviewText" class="ocr-text-edit form-input" rows="6" lang="ja-JP" placeholder="OCRで読み取ったテキストがここに表示されます。誤読があればこのまま編集してください。"></textarea>
-          <div class="ocr-fields-preview" id="ocrFieldsPreview"></div>
+          <textarea id="expenseMemoText" class="form-input voice-textarea" rows="3"
+            placeholder="例:本日、ENEOSでガソリン代5,000円を現金で支払い"></textarea>
+
+          <!-- OCR進捗バー -->
+          <div class="ocr-progress-block" id="ocrProgressBlock" hidden>
+            <div class="ocr-progress-head">
+              <span class="ocr-progress-label" id="ocrProgressLabel">OCR準備中…</span>
+              <span class="ocr-progress-percent" id="ocrProgressPercent">0%</span>
+            </div>
+            <div class="ocr-progress-bar"><div class="ocr-progress-bar-fill" id="ocrProgressBarFill" style="width:0%"></div></div>
+            <div class="ocr-progress-note">初回は日本語学習モデル（約15MB）をダウンロードします。2回目以降はブラウザキャッシュから瞬時に起動します。</div>
+          </div>
+
+          <!-- OCR結果プレビュー -->
+          <div class="ocr-card" id="ocrPreviewCard" hidden>
+            <div class="ocr-card-header">
+              <div class="ocr-label">🔍 OCR読取結果</div>
+              <span class="ocr-source-badge" id="ocrSourceBadge" data-source="real">実OCR読取</span>
+            </div>
+            <p class="ocr-warn-note">⚠ OCR読取はレシート画像の明るさ、手ブレ、文字の向き、印字の薄さにより精度が変わります。読み取り結果は登録前に必ず確認・修正してください。下のテキストは直接編集でき、編集内容に応じて項目プレビューも更新されます。</p>
+            <textarea id="ocrPreviewText" class="ocr-text-edit form-input" rows="6" lang="ja-JP" placeholder="OCRで読み取ったテキストがここに表示されます。誤読があればこのまま編集してください。"></textarea>
+            <div class="ocr-fields-preview" id="ocrFieldsPreview"></div>
+          </div>
+
+          <div class="ai-loading" id="ocrLoading" hidden>
+            <div class="spinner"></div>
+            <div id="ocrLoadingLabel">OCRで読み取り中…</div>
+          </div>
+
+          <!-- アクションバー -->
+          <div class="action-bar">
+            <button class="btn ghost" id="ocrReadBtn">🔍 OCR読取</button>
+            <button class="btn primary big" id="aiClassifyBtn">🤖 AI分類して確認</button>
+          </div>
         </div>
 
-        <div class="ai-loading" id="ocrLoading" hidden>
-          <div class="spinner"></div>
-          <div id="ocrLoadingLabel">OCRで読み取り中…</div>
+        <!-- v3.17.8: 手入力モード セクション -->
+        <div id="expenseManualSection" hidden>
+          <button type="button" class="btn ghost small back-to-mode" data-back-to-mode="">← 登録方法 選択へ戻る</button>
+          <p class="ocr-caution-note">✍️ <strong>手入力モード</strong>: 画面に入力した内容がそのまま登録されます。OCR推定値・サンプル値は一切使用されません。</p>
+
+          <div class="form-block">
+            <label class="form-label" for="manExpDate">経費日 <span class="req">*</span></label>
+            <input type="date" id="manExpDate" class="form-input" />
+          </div>
+          <div class="form-block">
+            <label class="form-label" for="manExpVendor">購入先 <span class="req">*</span></label>
+            <input type="text" id="manExpVendor" class="form-input" placeholder="例: ENEOS 田中SS / カインズ" autocomplete="off" />
+          </div>
+          <div class="form-block">
+            <label class="form-label" for="manExpContent">内容</label>
+            <input type="text" id="manExpContent" class="form-input" placeholder="例: ガソリン代 / 工具購入 / 店舗備品" autocomplete="off" />
+          </div>
+          <div class="grid-2">
+            <div>
+              <label class="form-label" for="manExpAmount">金額(税込) <span class="req">*</span></label>
+              <input type="text" id="manExpAmount" class="form-input" inputmode="numeric" autocomplete="off" placeholder="例: 3000" />
+            </div>
+            <div>
+              <label class="form-label" for="manExpTax">消費税(円)</label>
+              <input type="text" id="manExpTax" class="form-input" inputmode="numeric" autocomplete="off" placeholder="例: 273" />
+            </div>
+          </div>
+          <div class="form-block">
+            <label class="form-label">支払方法 <span class="req">*</span></label>
+            <div class="payment-methods" id="manExpPayments" role="radiogroup">
+              <button class="pay-btn" type="button" data-pay="現金">現金</button>
+              <button class="pay-btn" type="button" data-pay="クレジットカード">カード</button>
+              <button class="pay-btn" type="button" data-pay="銀行振込">振込</button>
+              <button class="pay-btn" type="button" data-pay="口座引落">引落</button>
+              <button class="pay-btn" type="button" data-pay="その他">その他</button>
+            </div>
+          </div>
+          <div class="form-block">
+            <label class="form-label">経費科目 <span class="req">*</span></label>
+            <div class="cat-all" id="manExpCategoryChips"></div>
+            <p class="form-sub">本社確定科目は、本社が確認時に設定します（未設定で登録可）。</p>
+          </div>
+
+          <!-- レシート画像 (任意添付) -->
+          <div class="form-block">
+            <label class="form-label">レシート画像（任意・証憑として添付）</label>
+            <label class="upload-card" for="manExpReceipt">
+              <div class="upload-icon" aria-hidden="true">📷</div>
+              <div class="upload-text">
+                <div class="upload-title">タップして撮影 / 画像を選択</div>
+                <div class="upload-sub">添付しなくても登録できます</div>
+              </div>
+              <input id="manExpReceipt" type="file" accept="image/*" capture="environment" hidden />
+            </label>
+            <div class="receipt-preview" id="manExpReceiptPreview" hidden>
+              <img id="manExpReceiptImg" alt="レシート" />
+              <button type="button" class="btn ghost small" id="manExpReceiptClear">画像を外す</button>
+            </div>
+          </div>
+
+          <div class="form-block">
+            <label class="form-label" for="manExpNote">備考</label>
+            <textarea id="manExpNote" class="form-input" rows="2" placeholder="任意"></textarea>
+          </div>
+
+          <div class="action-bar">
+            <button type="button" class="btn ghost" data-back-to-mode="">キャンセル</button>
+            <button type="button" class="btn primary big" id="manExpNextBtn">次へ確認</button>
+          </div>
         </div>
 
-        <!-- アクションバー: OCR読取 → 確認画面で手修正可能 -->
-        <div class="action-bar">
-          <button class="btn ghost" id="ocrReadBtn">🔍 OCR読取</button>
-          <button class="btn primary big" id="aiClassifyBtn">🤖 AI分類して確認</button>
-        </div>
       </div>
     </div>
 

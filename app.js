@@ -1206,6 +1206,8 @@
         ta.value = VOICE_TEMPLATE;
       }
     }
+    // v3.17.8: 経費登録画面のモード選択は HTML 初期表示 + 各操作ハンドラで切替する。
+    // ここでは強制リセットせず、戻る/再エントリ時のフォーム状態を温存する。
   }
   function setHQTab(name) {
     $$(".hq-nav-item").forEach(b => b.classList.toggle("active", b.dataset.hqTab === name));
@@ -1614,17 +1616,174 @@
   //   - "memo":   画像なし + メモ欄のみ
   //   - "empty":  画像も読取結果もメモもない (確認画面の項目は空欄)
   let _expenseUploadCtx = null; // { sample, dataUrl, fileName, icon, ocrText, ocrSource }
+
+  // v3.17.8: 経費登録モード "ocr" | "manual" | null (登録方法選択中)
+  //   - "ocr":    レシート画像 + Tesseract.js + AI分類
+  //   - "manual": 手入力フォーム (OCR推定値・サンプル値を一切使わない)
+  //   - null:     モード選択カードを表示中
+  let _expenseMode = null;
+  let _manExpReceiptDataUrl = ""; // 手入力モードの添付レシート画像 (dataURL・任意)
+  let _manExpCategoryPick   = ""; // 手入力フォーム上で選択中の経費科目
+
+  function showExpenseMode(mode) {
+    _expenseMode = mode;
+    const picker  = $("#expenseModePicker");
+    const ocrSec  = $("#expenseOcrSection");
+    const manSec  = $("#expenseManualSection");
+    if (picker) picker.hidden = (mode !== null);
+    if (ocrSec) ocrSec.hidden = (mode !== "ocr");
+    if (manSec) manSec.hidden = (mode !== "manual");
+  }
+
   function _resetExpenseUploadUI() {
+    // OCR モード側のリセット
     _expenseUploadCtx = null;
-    $("#receiptInput").value = "";
-    $("#receiptImg").src = "";
-    $("#receiptPreview").hidden = true;
-    $("#expenseMemoText").value = "";
-    $("#ocrPreviewCard").hidden = true;
+    if ($("#receiptInput")) $("#receiptInput").value = "";
+    if ($("#receiptImg")) $("#receiptImg").src = "";
+    if ($("#receiptPreview")) $("#receiptPreview").hidden = true;
+    if ($("#expenseMemoText")) $("#expenseMemoText").value = "";
+    if ($("#ocrPreviewCard")) $("#ocrPreviewCard").hidden = true;
     const ta = $("#ocrPreviewText"); if (ta) ta.value = "";
-    $("#ocrFieldsPreview").innerHTML = "";
+    if ($("#ocrFieldsPreview")) $("#ocrFieldsPreview").innerHTML = "";
     hideOCRProgress();
     setOCRStatusChip("idle");
+
+    // v3.17.8: 手入力モード側のリセット
+    _manExpReceiptDataUrl = "";
+    _manExpCategoryPick   = "";
+    if ($("#manExpDate"))    $("#manExpDate").value    = todayKey();
+    if ($("#manExpVendor"))  $("#manExpVendor").value  = "";
+    if ($("#manExpContent")) $("#manExpContent").value = "";
+    if ($("#manExpAmount"))  $("#manExpAmount").value  = "";
+    if ($("#manExpTax"))     $("#manExpTax").value     = "";
+    if ($("#manExpNote"))    $("#manExpNote").value    = "";
+    if ($("#manExpReceipt")) $("#manExpReceipt").value = "";
+    if ($("#manExpReceiptImg")) $("#manExpReceiptImg").src = "";
+    if ($("#manExpReceiptPreview")) $("#manExpReceiptPreview").hidden = true;
+    renderPayButtons("#manExpPayments", null);
+    _renderManExpCategoryChips();
+
+    // モード選択カードを表示
+    showExpenseMode(null);
+  }
+
+  // v3.17.8: 手入力モード - 経費科目チップ描画 (初期は未選択)
+  function _renderManExpCategoryChips() {
+    const wrap = $("#manExpCategoryChips");
+    if (!wrap) return;
+    wrap.innerHTML = EXPENSE_CATEGORIES.map(c => `
+      <button type="button" class="cat-chip ${_manExpCategoryPick === c ? "active" : ""}" data-cat="${escapeHtml(c)}">${escapeHtml(c)}</button>
+    `).join("");
+    wrap.querySelectorAll("[data-cat]").forEach(b => {
+      b.addEventListener("click", () => {
+        _manExpCategoryPick = b.dataset.cat;
+        _renderManExpCategoryChips();
+      });
+    });
+  }
+
+  // v3.17.8: モードピッカー + 手入力フォームの一括セットアップ (初期化時に1度呼ぶ)
+  function setupExpenseModeAndManualForm() {
+    // モード選択カード
+    document.querySelectorAll("#expenseModePicker .mode-card").forEach(card => {
+      card.addEventListener("click", () => {
+        const m = card.dataset.mode;
+        if (m === "manual") {
+          // 手入力モードに切替時、フォーム既定値を設定
+          _manExpReceiptDataUrl = "";
+          _manExpCategoryPick = "";
+          if ($("#manExpDate")) $("#manExpDate").value = todayKey();
+          renderPayButtons("#manExpPayments", null);
+          _renderManExpCategoryChips();
+        }
+        showExpenseMode(m);
+      });
+    });
+    // 「← モード選択へ戻る」ボタン (OCR / 手入力 両セクション内に複数あり)
+    document.querySelectorAll("[data-back-to-mode]").forEach(btn => {
+      btn.addEventListener("click", () => showExpenseMode(null));
+    });
+
+    // 手入力モード - 支払方法
+    renderPayButtons("#manExpPayments", null, (val) => {
+      renderPayButtons("#manExpPayments", val);
+    });
+
+    // 手入力モード - 経費科目チップ
+    _renderManExpCategoryChips();
+
+    // 手入力モード - レシート画像 (任意添付)
+    const recInput = $("#manExpReceipt");
+    if (recInput) {
+      recInput.addEventListener("change", (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          _manExpReceiptDataUrl = ev.target.result;
+          if ($("#manExpReceiptImg")) $("#manExpReceiptImg").src = ev.target.result;
+          if ($("#manExpReceiptPreview")) $("#manExpReceiptPreview").hidden = false;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+    const recClear = $("#manExpReceiptClear");
+    if (recClear) {
+      recClear.addEventListener("click", () => {
+        _manExpReceiptDataUrl = "";
+        if ($("#manExpReceipt")) $("#manExpReceipt").value = "";
+        if ($("#manExpReceiptImg")) $("#manExpReceiptImg").src = "";
+        if ($("#manExpReceiptPreview")) $("#manExpReceiptPreview").hidden = true;
+      });
+    }
+
+    // 「次へ確認」: 手入力値から draftExpense を組み立て、確認画面へ
+    const nextBtn = $("#manExpNextBtn");
+    if (!nextBtn) return;
+    nextBtn.addEventListener("click", () => {
+      const date      = $("#manExpDate").value || todayKey();
+      const vendor    = ($("#manExpVendor").value || "").trim();
+      const content   = ($("#manExpContent").value || "").trim();
+      const amount    = parseAmountInput($("#manExpAmount").value);
+      const tax       = parseAmountInput($("#manExpTax").value);
+      const activePay = document.querySelector("#manExpPayments .pay-btn.active");
+      const paymentMethod = activePay ? (activePay.dataset.pay || "") : "";
+      const category  = _manExpCategoryPick;
+      const note      = $("#manExpNote").value || "";
+
+      if (!vendor)                  { toast("購入先を入力してください"); $("#manExpVendor").focus(); return; }
+      if (!amount || amount <= 0)   { toast("金額を確認してください"); $("#manExpAmount").focus(); return; }
+      if (!paymentMethod)           { toast("支払方法を選択してください"); return; }
+      if (!category)                { toast("経費科目を選択してください"); return; }
+
+      // 手入力モードの draftExpense (OCR推定値・サンプル値は一切使わない)
+      // - ocrSource = "manual"     ← 確認画面の登録ハンドラがこれを検出して source: "manual" を送る
+      // - ocrText   = ""           ← OCR読取結果は空
+      // - aiCandidates: 内容/購入先からのカテゴリ推定 (確認画面で他カテゴリ選択用の参考表示)
+      const aiCands = classifyExpense(`${vendor} ${content}`);
+      draftExpense = {
+        date,
+        storeName:     DEFAULT_STORE_NAME,
+        staff:         DEFAULT_STAFF,
+        vendor,
+        content:       content || category, // 内容未入力時はカテゴリ名で代用
+        amount,
+        taxAmount:     tax,
+        paymentMethod,
+        aiCategory:    category,            // 手入力モードでは AI推定なし → user の選択
+        category,
+        aiCandidates:  aiCands,
+        note,
+        memoText:      "",
+        ocrText:       "",                  // ★ 手入力では空 ★
+        ocrSource:     "manual",
+        receiptThumb:  _manExpReceiptDataUrl ? "🧾" : "✍️",
+        receiptDataUrl: _manExpReceiptDataUrl
+      };
+
+      renderExpenseConfirm();
+      goScreen("store-expense-confirm");
+    });
   }
 
   // v3.17: OCR利用状況チップ (画面常時表示・実OCRかサンプルかを明示)
@@ -2142,8 +2301,20 @@
     } else {
       thumb.textContent = draftExpense.receiptThumb || "🧾";
     }
-    // OCR
-    $("#ocrText").textContent = draftExpense.ocrText || "";
+    // OCR読取結果カード
+    // v3.17.8: 手入力モード (ocrText 空) では OCR読取結果セクションごと非表示にして UI を簡素化
+    const ocrTextEl = $("#ocrText");
+    if (ocrTextEl) {
+      ocrTextEl.textContent = draftExpense.ocrText || "";
+      const ocrCard = ocrTextEl.closest(".ocr-card");
+      // 直前の <h3>🔍 OCR読取結果</h3> も合わせて非表示
+      const ocrHeading = ocrCard && ocrCard.previousElementSibling &&
+                         ocrCard.previousElementSibling.classList.contains("conf-section-title")
+                       ? ocrCard.previousElementSibling : null;
+      const hasOcr = !!(draftExpense.ocrText && draftExpense.ocrText.trim());
+      if (ocrCard)    ocrCard.hidden    = !hasOcr;
+      if (ocrHeading) ocrHeading.hidden = !hasOcr;
+    }
     // 大型サマリー
     $("#confExpenseAmount").value = draftExpense.amount || "";
     $("#confExpenseVendor").value = draftExpense.vendor || "";
@@ -2247,6 +2418,11 @@
       if (!categoryFinal)                         { toast("経費科目を選択してください"); return; }
       if (!paymentMethodFinal)                    { toast("支払方法を選択してください"); return; }
 
+      // v3.17.8: 手入力モード判定 (draftExpense.ocrSource === "manual" または _expenseMode === "manual")
+      //   - 手入力モードでは ocrText は強制的に空、ocrSource/source は "manual"
+      //   - OCR モードでは draftExpense.ocrText / ocrSource をそのまま使用
+      const isManualMode = (_expenseMode === "manual") || (draftExpense.ocrSource === "manual");
+
       const finalExpenseRecord = {
         id: uid(), type: "expense",
         createdAt: new Date().toISOString(),
@@ -2264,16 +2440,22 @@
         // ====== 不変スナップショット (OCR/AI分類の記録のみ。最終値の参照には使わない) ======
         aiCategory:    draftExpense.aiCategory || categoryFinal,
         aiCandidates:  draftExpense.aiCandidates || [],
-        ocrText:       draftExpense.ocrText || "",
-        ocrSource:     draftExpense.ocrSource || "",
-        receiptThumb:  draftExpense.receiptThumb || "🧾",
+        // v3.17.8: 手入力モードでは ocrText 必ず "" / ocrSource = "manual"
+        ocrText:       isManualMode ? "" : (draftExpense.ocrText || ""),
+        ocrSource:     isManualMode ? "manual" : (draftExpense.ocrSource || ""),
+        source:        isManualMode ? "manual" : (draftExpense.ocrSource || "store-expense-upload"),
+        receiptThumb:  draftExpense.receiptThumb || (isManualMode ? "✍️" : "🧾"),
         receiptDataUrl: draftExpense.receiptDataUrl || "",
         // ====== ステータス ======
         status:            "未確認",
         sheetsSyncStatus:  "pending"
       };
 
-      console.log('[Expense] final expense record', finalExpenseRecord);
+      if (isManualMode) {
+        console.log('[Expense Manual] final expense record', finalExpenseRecord);
+      } else {
+        console.log('[Expense] final expense record', finalExpenseRecord);
+      }
 
       records.push(finalExpenseRecord); saveAll(records);
       $("#doneExpenseAmount").textContent = yen(finalExpenseRecord.amount);
@@ -2288,9 +2470,11 @@
       //   経費一覧・月次集計・CSV出力は通常通り動作する。
       console.log('[Sheets] addExpense sending', {
         action: 'addExpense',
+        source: finalExpenseRecord.source || finalExpenseRecord.ocrSource,
         amount: finalExpenseRecord.amount,
         vendor: finalExpenseRecord.vendor,
         category: finalExpenseRecord.category,
+        ocrText: finalExpenseRecord.ocrText ? `(${finalExpenseRecord.ocrText.length} chars)` : "(empty)",
         recordId: finalExpenseRecord.id
       });
       sendExpenseToSheets(finalExpenseRecord).then(function (result) {
@@ -4413,6 +4597,7 @@
     setupVoiceUI();
     setupSalesConfirm();
     setupExpenseUpload();
+    setupExpenseModeAndManualForm(); // v3.17.8: モード選択カード + 手入力フォーム
     setupExpenseConfirm();
     setupRejectModal();
     setupImageZoomModal();

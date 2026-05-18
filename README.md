@@ -2,7 +2,7 @@
 
 **吉田自動車工業 X-Changeタイヤ販売店舗向け プロトタイプ**
 
-> 補助金申請前 説明資料 兼 プロトタイプ仕様書 (v3.17.7 / 本番画面クリーンアップ・サンプル/デバッグ非表示版)
+> 補助金申請前 説明資料 兼 プロトタイプ仕様書 (v3.17.8 / 経費登録 OCRモード・手入力モード 2系統対応版)
 > **店舗側はスマートフォン操作 / 本社側はPC操作を想定。スマホでも本社側の確認が可能。**
 > **売上音声入力はスマホ標準キーボードのマイクを利用するため、音声認識API料金は不要です。**
 > **経費レシートOCRは Tesseract.js によるブラウザ内処理のためAPIキーは不要、画像は外部送信されません（v3.17）。**
@@ -860,6 +860,40 @@ python3 -m http.server 8080
 > 📌 **撮影したレシートを、APIキー不要のブラウザ内OCRで実際に文字認識**
 > 経費レシート登録画面で、スマホで撮影した実画像から日付・金額・購入先・支払方法を自動抽出できます。
 
+#### 経費登録 OCRモード・手入力モード（v3.17.8 新規）
+
+> 📌 **経費登録は、OCR読取モードと手入力モードに対応します。OCRは補助機能であり、手入力モードではOCR結果やサンプル値を使わず、ユーザーが入力した金額・購入先・内容をそのまま登録します。レシート画像は証憑として添付できます。**
+
+経費レシート登録画面の最初に、登録方法を2つから選びます。
+
+| モード | 用途 | 入力方法 |
+|---|---|---|
+| **① レシートをOCRで読み取る** | レシート画像があり、OCR + AI分類で素早く登録したい | 画像アップロード → 実OCR → 確認画面で修正 → 登録 |
+| **② 手入力で登録する** | OCRで読み取れないレシート、手書き、または直接入力したい | フォームに直接入力 → レシート画像は任意添付 → 確認画面で再確認 → 登録 |
+
+**手入力モードの仕様（OCR推定値・サンプル値を一切使わない）:**
+
+- 入力欄: 経費日 / 購入先 / 内容 / 金額（税込）/ 消費税 / 支払方法 / 経費科目 / レシート画像（任意）/ 備考
+- 店舗名・担当者はシステム既定値（吉田自動車工業 X-Change本店 / 店長）。確認画面で編集可能
+- 本社確定科目（`hqCategory`）は **本社が確認時に設定** するため店舗入力欄では未表示。送信時は経費科目 (`category`) からフォールバックされる
+- 「次へ確認」を押すと OCR を一切実行せず、確認画面に直接遷移
+- 確認画面では金額・購入先・内容・消費税・支払方法・経費科目・備考をすべて編集可
+- 「この内容で登録」押下時、**確認画面の DOM 入力値** から `finalExpenseRecord` を組み立て、localStorage 保存と Google Sheets 送信の両方に **同一オブジェクト** を使用
+- 手入力レコードは `ocrText: ""` / `ocrSource: "manual"` / `source: "manual"` / `receiptThumb: "✍️"` で記録。OCR読取結果カードは確認画面で **非表示**
+
+**レシート画像の保存:**
+
+手入力モードで添付した画像は、現在の仕様では `receiptDataUrl` (base64 dataURL) として localStorage に保持し、Google Sheets 02_経費明細 の `receiptImageUrl` カラムには同 dataURL をそのまま送信します。Apps Script 側で Drive へのアップロード・URL 化を行う **外部URL保存は次フェーズ** で実装予定です（現段階では base64 文字列が大きく Sheets セルの上限に達する場合は Apps Script 側で省略保存される可能性があります）。
+
+**デバッグログ（DevTools コンソール）:**
+
+```text
+[Expense Manual] final expense record    {...}        // 手入力モードで登録した場合のみ
+[Expense] final expense record           {...}        // OCRモードで登録した場合
+[Expense] final amount input value       "3000"       // 両モード共通
+[Sheets] addExpense sending              {...}        // 両モード共通
+```
+
 #### 本番表示のクリーンアップ（v3.17.7）
 
 > 📌 **本番運用画面では、サンプルOCR・デバッグ表示・固定サンプル値は表示しません。売上入力は項目テンプレートのみを表示し、経費登録はOCR読取または手入力登録を選択する方式とします。**
@@ -1168,6 +1202,7 @@ X-change/
 | v3.17.2 | OCR結果の安全な扱いを徹底。OCR全文を「内容」欄や「金額」欄にそのまま流し込まないようにし、専用の `extractAmountFromReceipt()` `extractTaxFromReceipt()` `extractVendorFromReceipt()` `extractPaymentFromReceipt()` `summarizeReceiptContent()` を新規実装。金額抽出を **キーワード優先 7段階**（総合計/合計（税込）/税込合計 → お支払金額/請求金額 → 合計（小計を除外・最後の出現） → 税込 → クレジット支払 → 現金/お預り → ¥/円マーク付き数字の最大値）に再構成し、税率（8/10）・電話番号・伝票番号・50円未満のノイズ数字を採用しない。消費税は `消費税等` / `税額` / `内消費税` / `消費税(8%)` / `消費税(10%)` キーワード直近のみ採用。内容欄には OCR 全文ではなく **短い要約**（「ガソリン代」「<購入先>購入分」「レシート内容 要確認」等）のみを入れる。低信頼度時は AI経費科目の自動選択をスキップし、確認画面に **「⚠ OCRの読み取り精度が低いため、金額・購入先・経費科目を手入力してください。」** バナーを表示。経費登録/上り/確認画面に常時 **「ブラウザOCRはレシートの角度・明るさ・文字の小ささにより誤認識する場合があります」** の注意書きを追加。Safari 16.3 以前の lookbehind 非対応環境でも壊れないよう正規表現を分割。購入先候補に 7&i / オートバックス / イエローハット / イオン / ヨーカドー / ライフ を追加。 |
 | v3.17.3 | 開発領域を **3領域に分割管理**（領域A: 売上音声入力・店舗側操作 ／ 領域B: 経費OCR・AI分類 ／ 領域C: 本社確認・月次集計・権限管理）。README §4-3 に領域分割の趣旨・対象機能・主なファイル位置・領域間依存関係・修正時チェックリストを明記。`app.js` 冒頭ヘッダコメントと主要セクション境界（AI音声パーサ層 / 経費パーサ・OCR抽出器 / 共通基盤 / 領域A店舗UI / 領域B経費UI / 領域C本社UI）に `▼▼▼ 領域X: ... ▼▼▼` / `▲▲▲ 領域X: ... (END) ▲▲▲` ディバイダコメントを追加。コードロジックは無変更。経費OCR修正時に売上音声入力を、本社機能修正時に店舗機能を、それぞれ壊さないための保守ガードを文書化。 |
 | v3.17.4 | **Google スプレッドシート連携** を追加（Apps Script Web App 経由・APIキー不要・Google Cloud 設定不要）。`XCHANGE_SHEETS_CONFIG` 定数（enabled / endpoint / token）と `sendSaleToSheets()` 共通ヘルパを実装。売上「確認して登録」押下時、localStorage 保存後に fire-and-forget で `action: "addSale"` を Apps Script へ POST。payload は 18項目（saleDate / storeName / staffName / customerName / sellerName / saleCategory / productName / tireSize / quantity / unitPrice / totalAmount / paymentMethod / carModel / carNumber / workContent / memo / overseasSale / confirmStatus）。各売上レコードに `sheetsSyncStatus` (`pending`/`synced`/`failed`) を追加。送信成功/失敗時にそれぞれ「Googleスプレッドシートへ登録しました」「Googleスプレッドシートへの送信に失敗しました。ローカルには登録されています。」をトースト表示。CORS preflight 回避のため `Content-Type: text/plain` で送信。送信失敗時も localStorage 保存・店舗側/本社側 売上一覧・月次集計・CSV出力は通常通り動作（既存機能を壊さない）。詳細は §10-1。 |
+| v3.17.8 | 経費登録を **OCRモード / 手入力モード** の 2系統に分離。経費レシート登録画面の最初に「① レシートをOCRで読み取る」「② 手入力で登録する」のモード選択カードを表示し、選択後にそれぞれのフォームへ遷移。**手入力モード**: 経費日 / 購入先 / 内容 / 金額（税込）/ 消費税 / 支払方法 / 経費科目 / レシート画像（任意添付）/ 備考 の入力フォーム。OCR推定値・サンプル経費・サンプルOCRテキストを **一切使用しない**（コードで明示的に `_expenseMode === "manual"` を分岐し、`ocrText = ""` / `ocrSource = "manual"` / `source = "manual"` を強制）。手入力モードでも登録前確認画面を必ず通り、確認画面の DOM 入力値で `finalExpenseRecord` を組み立て localStorage 保存と `sendExpenseToSheets()` の両方に使用（v3.17.6 の手入力最優先ロジックを継承）。確認画面では OCR読取結果カードが ocrText 空時に自動非表示。手入力レコードは `[Expense Manual] final expense record` / `[Sheets] addExpense sending` (`source: "manual"`) でデバッグログ出力。**OCRモード**: 既存挙動を維持（実OCR / サンプルOCR / メモ / 空 の 4系統＋ユーザー手修正最優先）。背面カメラ起動・進捗バー・OCR原文編集・AI分類候補・低信頼度バナーは全て継続動作。レシート画像は両モードとも `receiptDataUrl` (base64) として保存・送信（外部URL化は次フェーズ）。既存機能（売上登録 / 売上 Sheets 送信 / 経費 localStorage 保存 / 経費 Sheets 送信 / 本日経費サマリー / 月次集計 / 本社側経費一覧 / 修正依頼 / スマホ表示）は全て無変更。 |
 | v3.17.7 | **本番画面のクリーンアップ**。本番運用では、サンプルOCR・デバッグ表示・固定サンプル値は表示しません。売上入力は項目テンプレートのみを表示し、経費登録はOCR読取または手入力登録を選択する方式とします。**売上音声入力画面**: 固定サンプル例 12項目（「お客様名:高橋様」「タイヤサイズ:195/65R15」等）と「💡 おすすめの話し方」見出しを削除し、説明文「項目名に続けて、短く区切って話してください。話し終わったら内容を確認し、必要に応じて手で修正してください。」のみ残す。「📋 サンプル音声を入れる」ボタンを削除（テンプレート投入ボタンは保持）。**経費レシート登録画面**: ① レシートをOCRで読み取る / ② 手入力で登録する の 2 ルートを見出しで明示。biz-note を「OCRは補助機能です。金額や購入先が間違う場合があります。手入力で登録する場合は、入力した内容がそのまま登録されます。」に差し替え。「📋 サンプル経費テキストを入れる」ボタンと、画面下部の OCR デバッグ表示（OCR source / text length / detected vendor / detected total amount / detected category）を削除。「サンプルレシートから選ぶ」グリッドは `.dev-only` クラスで本番非表示化（`body.dev-mode` で開発時のみ表示可能）。アクションバー上の「画像をアップロードした場合は実OCR読取、サンプルレシートを選んだ場合は…」案内も削除。既存機能（売上音声入力 / AI分解 / 売上登録前確認 / 経費OCR登録 / 経費手入力登録 / Google Sheets 送信 / localStorage 保存 / 本社側・店舗側一覧 / 月次集計 / スマホ表示）は全て無変更。 |
 | v3.17.6 | 経費登録の金額処理を **最終確認画面の入力値最優先** に修正。「この内容で登録」押下時、`draftExpense.*` ではなく **DOM から直接** 金額・消費税・購入先・内容・支払方法・経費科目・備考を再取得し、`finalExpenseRecord` を組み立てる。localStorage 保存と `sendExpenseToSheets()` への送信は同一の `finalExpenseRecord` を使用し、OCR・AI分類・サンプル値・旧 draftExpense 値で上書きされない保証を確立。共通正規化ヘルパ `parseAmountInput()` を追加（全角数字 `０-９` → 半角、`¥` `￥` `,` `，` `円` 空白 を除去）し、`"3,000"` `"￥3000"` `"¥3,000"` `"１５０００"` `"15,000円"` を全て正しい数値に変換。`#confExpenseAmount` / `#confExpenseTax` を `type="number"` → `type="text" inputmode="numeric"` に変更（カンマ・通貨記号を含む入力を許容、blur で自動正規化）。経費登録ボタン押下時に `console.log('[Expense] final amount input value', ...)` / `console.log('[Expense] final expense record', ...)` / `console.log('[Sheets] addExpense sending', ...)` をデバッグ出力。支払方法・経費科目は active クラスを持つボタンから DOM 直接読み取り。Google Sheets 送信失敗時もローカル保存・経費一覧・本日経費サマリー・月次集計・OCR画面・AI分類画面・スマホ表示は通常通り動作（既存機能を壊さない）。 |
 | v3.17.5 | Google スプレッドシート連携を **経費・仕入** にも拡張。共通コア `_postToSheets(action, payload)` に整理し、`sendSaleToSheets()` / `sendExpenseToSheets()` / `sendPurchaseToSheets()` の3ヘルパを公開。経費「この内容で登録」押下時に `action: "addExpense"` を **02_経費明細** へ送信（payload 16項目: expenseDate / storeName / staffName / vendor / content / amount / tax / paymentMethod / aiCategory / hqCategory / receiptImageUrl / ocrText / memo / confirmStatus / hasRevisionRequest / source）。経費レコードにも `sheetsSyncStatus` を付与し、成功時「Googleスプレッドシートへ経費を登録しました」/ 失敗時「Googleスプレッドシートへの経費送信に失敗しました。ローカルには登録されています。」をトースト表示。仕入は専用画面が無いためヘルパ実装のみ（`action: "addPurchase"` → **03_仕入明細**、payload 15項目: purchaseDate / vendor / productName / tireSize / quantity / unitPrice / totalAmount / paymentMethod / invoiceNo / paymentDueDate / paymentStatus 等）— 将来 `type:"purchase"` 画面を追加した際にそのまま呼び出し可能。Apps Script Web App URL / token は v3.17.4 と同一の `XCHANGE_SHEETS_CONFIG` を使用（新規追加なし）。送信失敗時も localStorage 保存・店舗側/本社側 経費一覧・月次集計・CSV出力・OCR画面・AI分類画面・スマホ表示は通常通り動作（既存機能を壊さない）。 |

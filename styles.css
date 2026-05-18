@@ -518,6 +518,34 @@ textarea.form-input { resize: vertical; }
 .ocr-status-chip[data-state="memo"]    { background: #eef3eb; color: #2f6b1c; border-color: #c5d8b8; }
 .ocr-status-chip[data-state="working"] { background: #fff8e6; color: #6c4a00; border-color: #f3d98a; }
 
+/* v3.17.8: 経費登録 モード選択カード (OCR / 手入力) */
+#expenseModePicker { display: flex; flex-direction: column; gap: 12px; }
+.mode-card {
+  display: flex; align-items: center; gap: 14px;
+  width: 100%; min-width: 0;
+  text-align: left;
+  background: #fff; border: 2px solid #d8dde6; border-radius: 14px;
+  padding: 16px 14px; cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.05s ease;
+}
+.mode-card:hover { border-color: #0b3d91; background: #f3f7ff; }
+.mode-card:active { transform: scale(0.99); }
+.mode-card .mc-icon {
+  flex-shrink: 0; font-size: 32px; line-height: 1;
+  width: 52px; height: 52px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  background: #f1f5fc; border: 1px solid #d6e1f3;
+}
+.mode-card .mc-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.mode-card .mc-title { font-weight: 800; font-size: 15px; color: #1a1f2c; }
+.mode-card .mc-desc { font-size: 12px; color: #5a6478; line-height: 1.5; }
+
+/* 「← モード選択へ戻る」ボタンの余白 */
+.back-to-mode { margin-bottom: 12px; }
+
+/* 必須マーク */
+.req { color: #c0322b; margin-left: 2px; font-weight: 700; }
+
 /* v3.17.7: 開発者用要素 (本番では非表示)。dev-only クラス + body.dev-mode で開発時のみ表示 */
 .dev-only { display: none; }
 body.dev-mode .dev-only { display: block; }
