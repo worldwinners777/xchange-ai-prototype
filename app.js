@@ -44,11 +44,11 @@
 
   // ================== 定数 ==================
   const STORAGE_KEY = "xchange.records.v1";
-  // ===== v3.1: 経費区分（12種） =====
+  // ===== v3.1 → v3.18.0: 経費区分（13種・水道光熱費を追加） =====
   const EXPENSE_CATEGORIES = [
     "タイヤ仕入", "工具消耗品", "廃タイヤ処分費", "店舗備品",
     "ガソリン代", "車両関連費", "通信費", "広告宣伝費",
-    "修繕費", "外注費", "雑費", "その他"
+    "修繕費", "外注費", "水道光熱費", "雑費", "その他"
   ];
   // ===== v3.1: 経費 支払方法（v1 から維持） =====
   const EXPENSE_PAYMENT_METHODS = ["現金","クレジットカード","銀行振込","口座引落","その他"];
@@ -66,6 +66,15 @@
   // ===== v3: デフォルト値 =====
   const DEFAULT_STORE_NAME = "吉田自動車工業 X-Change本店";
   const DEFAULT_STAFF      = "店長";
+
+  // ===== v3.18.0 (第1分割): 店舗側マスタ用 localStorage キー =====
+  //   将来 Google Sheets 13_顧客マスタ / 14_商品マスタ 等への送信に対応する想定。
+  //   現段階ではローカル管理のみ。
+  const CUSTOMER_STORAGE_KEY = "xchange.customers.v1";
+  const PRODUCT_STORAGE_KEY  = "xchange.products.v1";
+
+  // 統合 支払方法マスタ (売上/経費/仕入で共通利用)
+  const PAYMENT_METHODS_MASTER = ["現金", "カード", "QR決済", "振込", "売掛", "引落", "その他"];
 
   // ===== v3.17: 実OCR (Tesseract.js) 設定 =====
   // CDN から遅延ロード。APIキー不要・全てブラウザ内で完結。
@@ -226,6 +235,82 @@
     } catch (_e) { return seedDemo(); }
   }
   function saveAll(records) { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); }
+
+  // ===== v3.18.0 (第1分割): マスタ CRUD ヘルパ =====
+  // 顧客マスタ・商品マスタを localStorage で管理。データ構造は将来 Google Sheets へ送信できる前提。
+  //   loadCustomers / saveCustomers / upsertCustomer / removeCustomer / findCustomerByName
+  //   loadProducts  / saveProducts  / upsertProduct  / removeProduct  / findProductByName
+  function _loadMaster(key) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch (_e) { return []; }
+  }
+  function _saveMaster(key, arr) { localStorage.setItem(key, JSON.stringify(arr || [])); }
+
+  function loadCustomers() { return _loadMaster(CUSTOMER_STORAGE_KEY); }
+  function saveCustomers(arr) { _saveMaster(CUSTOMER_STORAGE_KEY, arr); }
+  // 顧客レコード: { id, createdAt, name, phone, carModel, carNumber, tireSize, address, note, lastVisit, totalSales, active }
+  function upsertCustomer(c) {
+    const list = loadCustomers();
+    if (c.id) {
+      const idx = list.findIndex(x => x.id === c.id);
+      if (idx >= 0) { list[idx] = { ...list[idx], ...c }; saveCustomers(list); return list[idx]; }
+    }
+    const rec = {
+      id: c.id || ("cust-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36)),
+      createdAt: c.createdAt || new Date().toISOString(),
+      name: c.name || "", phone: c.phone || "",
+      carModel: c.carModel || "", carNumber: c.carNumber || "", tireSize: c.tireSize || "",
+      address: c.address || "", note: c.note || "",
+      lastVisit: c.lastVisit || "", totalSales: c.totalSales || 0,
+      active: c.active !== false
+    };
+    list.push(rec); saveCustomers(list); return rec;
+  }
+  function removeCustomer(id) { saveCustomers(loadCustomers().filter(c => c.id !== id)); }
+  function findCustomerByName(name) {
+    if (!name) return null;
+    const needle = String(name).trim();
+    return loadCustomers().find(c => c.name === needle) || null;
+  }
+
+  function loadProducts() { return _loadMaster(PRODUCT_STORAGE_KEY); }
+  function saveProducts(arr) { _saveMaster(PRODUCT_STORAGE_KEY, arr); }
+  // 商品レコード: { id, name, category, tireSize, unitPrice, costPrice, stockManaged, active, note }
+  function upsertProduct(p) {
+    const list = loadProducts();
+    if (p.id) {
+      const idx = list.findIndex(x => x.id === p.id);
+      if (idx >= 0) { list[idx] = { ...list[idx], ...p }; saveProducts(list); return list[idx]; }
+    }
+    const rec = {
+      id: p.id || ("prod-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36)),
+      name: p.name || "", category: p.category || "",
+      tireSize: p.tireSize || "",
+      unitPrice: Number(p.unitPrice || 0), costPrice: Number(p.costPrice || 0),
+      stockManaged: !!p.stockManaged, active: p.active !== false,
+      note: p.note || ""
+    };
+    list.push(rec); saveProducts(list); return rec;
+  }
+  function removeProduct(id) { saveProducts(loadProducts().filter(p => p.id !== id)); }
+  function findProductByName(name) {
+    if (!name) return null;
+    const needle = String(name).trim();
+    return loadProducts().find(p => p.name === needle) || null;
+  }
+  // 顧客の最終来店日・累計売上を売上登録時に自動更新
+  function _bumpCustomerOnSale(customerName, total, date) {
+    const c = findCustomerByName(customerName);
+    if (!c) return;
+    c.lastVisit = date || todayKey();
+    c.totalSales = Number(c.totalSales || 0) + Number(total || 0);
+    const list = loadCustomers().map(x => x.id === c.id ? c : x);
+    saveCustomers(list);
+  }
   function seedDemo() {
     const now = new Date();
     const yymm = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -1208,6 +1293,16 @@
     }
     // v3.17.8: 経費登録画面のモード選択は HTML 初期表示 + 各操作ハンドラで切替する。
     // ここでは強制リセットせず、戻る/再エントリ時のフォーム状態を温存する。
+
+    // v3.18.0 (第1分割): 新規画面のレンダリング
+    if (name === "store-today-status")   renderStoreTodayStatus();
+    if (name === "store-month-status")   renderStoreMonthStatus();
+    if (name === "store-master")         renderMasterScreen();
+    if (name === "store-purchase-upload") {
+      // 仕入入力画面エントリ時に商品データリストを最新化 (マスタ更新を反映)
+      _renderPurchaseProductDatalist();
+      if ($("#purDate") && !$("#purDate").value) $("#purDate").value = todayKey();
+    }
   }
   function setHQTab(name) {
     $$(".hq-nav-item").forEach(b => b.classList.toggle("active", b.dataset.hqTab === name));
@@ -1396,6 +1491,417 @@
     });
   }
 
+  // ================== v3.18.0 (第1分割): 本日の状況 / 今月の状況 ==================
+  // 店舗側の店長がスマホで「本日」「月初〜今日」の業績を一目で見るための簡易集計。
+  // 粗利益は概算 (売上 − 経費 − 仕入)。決算用の詳細集計は本社側で別途行う。
+  function _sumByType(filtered, type, field) {
+    return filtered.filter(r => r.type === type).reduce((s, r) => s + Number(r[field] || 0), 0);
+  }
+  function _countByType(filtered, type) {
+    return filtered.filter(r => r.type === type).length;
+  }
+  function renderStoreTodayStatus() {
+    const today = todayKey();
+    const todayRecs = records.filter(r => isSameDay(r.createdAt, today) || (r.date === today));
+    const salesAmt = _sumByType(todayRecs, "sale", "total");
+    const expAmt   = _sumByType(todayRecs, "expense", "amount");
+    const purAmt   = _sumByType(todayRecs, "purchase", "total");
+    const gross    = salesAmt - expAmt - purAmt;
+    $("#todayStatusDate").innerHTML = `📅 <strong>${fmtGreeting(new Date())}</strong>`;
+    $("#tsSalesAmt").textContent = yen(salesAmt);
+    $("#tsSalesCnt").textContent = _countByType(todayRecs, "sale") + "件";
+    $("#tsExpAmt").textContent   = yen(expAmt);
+    $("#tsExpCnt").textContent   = _countByType(todayRecs, "expense") + "件";
+    $("#tsPurAmt").textContent   = yen(purAmt);
+    $("#tsPurCnt").textContent   = _countByType(todayRecs, "purchase") + "件";
+    $("#tsGross").textContent    = yen(gross);
+    $("#tsPending").textContent  = records.filter(r => r.status === "未確認").length;
+    $("#tsReject").textContent   = records.filter(r => r.status === "修正依頼").length;
+  }
+  function renderStoreMonthStatus() {
+    const now = new Date();
+    const y = now.getFullYear(), m = now.getMonth();
+    const firstDay = new Date(y, m, 1);
+    const firstKey = `${y}-${String(m+1).padStart(2,"0")}-01`;
+    const todayK   = todayKey();
+    // 月初〜本日 (date が範囲内、または createdAt が範囲内)
+    const monthRecs = records.filter(r => {
+      const d = r.date || (r.createdAt || "").slice(0, 10);
+      return d >= firstKey && d <= todayK;
+    });
+    const salesAmt = _sumByType(monthRecs, "sale", "total");
+    const expAmt   = _sumByType(monthRecs, "expense", "amount");
+    const purAmt   = _sumByType(monthRecs, "purchase", "total");
+    const gross    = salesAmt - expAmt - purAmt;
+    $("#msYM").textContent     = `${y}年${m+1}月`;
+    $("#msFirst").textContent  = `${y}/${m+1}/1 (${DOW[firstDay.getDay()]})`;
+    $("#msToday").textContent  = `${y}/${now.getMonth()+1}/${now.getDate()} (${DOW[now.getDay()]})`;
+    $("#msSalesAmt").textContent = yen(salesAmt);
+    $("#msSalesCnt").textContent = _countByType(monthRecs, "sale") + "件";
+    $("#msExpAmt").textContent   = yen(expAmt);
+    $("#msExpCnt").textContent   = _countByType(monthRecs, "expense") + "件";
+    $("#msPurAmt").textContent   = yen(purAmt);
+    $("#msPurCnt").textContent   = _countByType(monthRecs, "purchase") + "件";
+    $("#msGross").textContent    = yen(gross);
+    $("#msPending").textContent  = monthRecs.filter(r => r.status === "未確認").length;
+    $("#msReject").textContent   = monthRecs.filter(r => r.status === "修正依頼").length;
+  }
+
+  // ================== v3.18.0 (第1分割): 仕入登録フロー ==================
+  // 仕入レコード (type: "purchase") は売上/経費と同じ records 配列に格納。
+  //   店舗入力: 仕入日 / 仕入先 / 商品名 / タイヤサイズ / 数量 / 単価 / 仕入合計 / 支払方法 / 備考
+  //   自動補完: 登録ID / 登録日時 / 店舗名 / 担当者 / 請求書番号(本社が後で設定) /
+  //             支払予定日(本社) / 支払ステータス(本社) / 確認ステータス / 修正依頼有無 /
+  //             登録元 / Google Sheets送信状態
+  let draftPurchase = null;
+  function _renderPurchaseProductDatalist() {
+    const dl = $("#purProductList");
+    if (!dl) return;
+    const prods = loadProducts().filter(p => p.active !== false);
+    dl.innerHTML = prods.map(p => `<option value="${escapeHtml(p.name)}"></option>`).join("");
+  }
+  function setupPurchaseForm() {
+    // 初期化
+    if ($("#purDate")) $("#purDate").value = todayKey();
+    renderPayButtons("#purPayments", null, (val) => renderPayButtons("#purPayments", val));
+    _renderPurchaseProductDatalist();
+
+    // 商品名候補から選んだ時にタイヤサイズ・単価を自動補完
+    $("#purProductName") && $("#purProductName").addEventListener("change", (e) => {
+      const prod = findProductByName(e.target.value);
+      if (!prod) return;
+      if (!$("#purTireSize").value && prod.tireSize)    $("#purTireSize").value = prod.tireSize;
+      if (!$("#purUnitPrice").value && prod.costPrice)  $("#purUnitPrice").value = String(prod.costPrice);
+      // 数量×単価で合計を自動計算 (未入力時のみ)
+      const q = parseAmountInput($("#purQty").value);
+      const u = parseAmountInput($("#purUnitPrice").value);
+      if (!$("#purTotal").value && q > 0 && u > 0) $("#purTotal").value = String(q * u);
+    });
+    // 数量×単価 → 仕入合計 自動計算 (合計未入力時)
+    const recalc = () => {
+      const q = parseAmountInput($("#purQty").value);
+      const u = parseAmountInput($("#purUnitPrice").value);
+      if (q > 0 && u > 0 && !$("#purTotal").value) $("#purTotal").value = String(q * u);
+    };
+    ["#purQty", "#purUnitPrice"].forEach(sel => {
+      const el = $(sel); if (el) el.addEventListener("blur", recalc);
+    });
+
+    // 「次へ確認」
+    const nextBtn = $("#purNextBtn");
+    if (!nextBtn) return;
+    nextBtn.addEventListener("click", () => {
+      const date      = $("#purDate").value || todayKey();
+      const vendor    = ($("#purVendor").value || "").trim();
+      const product   = ($("#purProductName").value || "").trim();
+      const tireSize  = ($("#purTireSize").value || "").trim();
+      const qty       = parseAmountInput($("#purQty").value);
+      const unitPrice = parseAmountInput($("#purUnitPrice").value);
+      const total     = parseAmountInput($("#purTotal").value);
+      const activePay = document.querySelector("#purPayments .pay-btn.active");
+      const payment   = activePay ? activePay.dataset.pay : "";
+      const note      = $("#purNote").value || "";
+
+      if (!vendor)                { toast("仕入先を入力してください"); $("#purVendor").focus(); return; }
+      if (!product)               { toast("商品名を入力してください"); $("#purProductName").focus(); return; }
+      if (!qty || qty <= 0)       { toast("数量を入力してください"); $("#purQty").focus(); return; }
+      if (!total || total <= 0)   { toast("仕入合計を確認してください"); $("#purTotal").focus(); return; }
+      if (!payment)               { toast("支払方法を選択してください"); return; }
+
+      draftPurchase = {
+        date, storeName: DEFAULT_STORE_NAME, staff: DEFAULT_STAFF,
+        vendor, productName: product, tireSize, qty, unitPrice, total,
+        paymentMethod: payment, note
+      };
+      renderPurchaseConfirm();
+      goScreen("store-purchase-confirm");
+    });
+  }
+  function renderPurchaseConfirm() {
+    if (!draftPurchase) return;
+    $("#cpurTotal").value       = draftPurchase.total || "";
+    $("#cpurVendor").value      = draftPurchase.vendor || "";
+    $("#cpurPayDisplay").textContent = draftPurchase.paymentMethod || "—";
+    $("#cpurDate").value        = draftPurchase.date || todayKey();
+    $("#cpurProductName").value = draftPurchase.productName || "";
+    $("#cpurTireSize").value    = draftPurchase.tireSize || "";
+    $("#cpurQty").value         = draftPurchase.qty || "";
+    $("#cpurUnitPrice").value   = draftPurchase.unitPrice || "";
+    $("#cpurNote").value        = draftPurchase.note || "";
+    renderPayButtons("#cpurPayments", draftPurchase.paymentMethod, (val) => {
+      draftPurchase.paymentMethod = val;
+      $("#cpurPayDisplay").textContent = val;
+      renderPayButtons("#cpurPayments", val);
+    });
+  }
+  function setupPurchaseConfirm() {
+    // 入力同期
+    $("#cpurTotal").addEventListener("input",       e => draftPurchase.total       = parseAmountInput(e.target.value));
+    $("#cpurTotal").addEventListener("blur",        e => { const v = parseAmountInput(e.target.value); e.target.value = v ? String(v) : ""; draftPurchase.total = v; });
+    $("#cpurVendor").addEventListener("input",      e => draftPurchase.vendor      = e.target.value);
+    $("#cpurDate").addEventListener("input",        e => draftPurchase.date        = e.target.value);
+    $("#cpurProductName").addEventListener("input", e => draftPurchase.productName = e.target.value);
+    $("#cpurTireSize").addEventListener("input",    e => draftPurchase.tireSize    = e.target.value);
+    $("#cpurQty").addEventListener("input",         e => draftPurchase.qty         = parseAmountInput(e.target.value));
+    $("#cpurUnitPrice").addEventListener("input",   e => draftPurchase.unitPrice   = parseAmountInput(e.target.value));
+    $("#cpurNote").addEventListener("input",        e => draftPurchase.note        = e.target.value);
+
+    $("#confirmPurchaseBtn").addEventListener("click", () => {
+      // 確認画面 DOM から最終値を再取得
+      const total     = parseAmountInput($("#cpurTotal").value);
+      const vendor    = ($("#cpurVendor").value || "").trim();
+      const date      = $("#cpurDate").value || todayKey();
+      const product   = ($("#cpurProductName").value || "").trim();
+      const tireSize  = ($("#cpurTireSize").value || "").trim();
+      const qty       = parseAmountInput($("#cpurQty").value);
+      const unitPrice = parseAmountInput($("#cpurUnitPrice").value);
+      const note      = $("#cpurNote").value || "";
+      const activePay = document.querySelector("#cpurPayments .pay-btn.active");
+      const payment   = activePay ? activePay.dataset.pay : draftPurchase.paymentMethod;
+
+      if (!vendor)              { toast("仕入先を入力してください"); $("#cpurVendor").focus(); return; }
+      if (!total || total <= 0) { toast("仕入合計を確認してください"); $("#cpurTotal").focus(); return; }
+      if (!payment)             { toast("支払方法を選択してください"); return; }
+
+      const finalPurchaseRecord = {
+        id: uid(), type: "purchase",
+        createdAt: new Date().toISOString(),
+        date,
+        storeName: DEFAULT_STORE_NAME,
+        staff:     DEFAULT_STAFF,
+        vendor,
+        productName: product,
+        tireSize,
+        qty,
+        unitPrice,
+        total,
+        paymentMethod: payment,
+        // 自動補完: 本社が後で設定する項目は空で初期化
+        invoiceNo:      "",
+        paymentDueDate: "",
+        paymentStatus:  "未払",
+        // 共通
+        note,
+        source: "store-purchase-upload",
+        status: "未確認",
+        sheetsSyncStatus: "pending"
+      };
+      console.log('[Purchase] final purchase record', finalPurchaseRecord);
+
+      records.push(finalPurchaseRecord); saveAll(records);
+      $("#donePurchaseAmount").textContent = yen(finalPurchaseRecord.total);
+      goScreen("store-purchase-done");
+      draftPurchase = null;
+      // 入力フォームクリア
+      ["#purDate","#purVendor","#purProductName","#purTireSize","#purQty","#purUnitPrice","#purTotal","#purNote"]
+        .forEach(sel => { const el = $(sel); if (el) el.value = ""; });
+      if ($("#purDate")) $("#purDate").value = todayKey();
+      renderPayButtons("#purPayments", null);
+      renderAll();
+
+      // v3.17.5/.8: Google スプレッドシートへ非同期送信 (fire-and-forget)
+      console.log('[Sheets] addPurchase sending', {
+        action: 'addPurchase',
+        vendor: finalPurchaseRecord.vendor,
+        productName: finalPurchaseRecord.productName,
+        total: finalPurchaseRecord.total,
+        recordId: finalPurchaseRecord.id
+      });
+      sendPurchaseToSheets(finalPurchaseRecord).then(function (result) {
+        var target = records.find(function (r) { return r.id === finalPurchaseRecord.id; });
+        if (!target) return;
+        if (result && result.ok) {
+          target.sheetsSyncStatus = "synced";
+          saveAll(records);
+          toast("Googleスプレッドシートへ仕入を登録しました");
+        } else {
+          target.sheetsSyncStatus = "failed";
+          target.sheetsSyncError = (result && result.reason) || "unknown";
+          saveAll(records);
+          toast("Googleスプレッドシートへの仕入送信に失敗しました。ローカルには登録されています。");
+        }
+      });
+    });
+  }
+
+  // ================== v3.18.0 (第1分割): マスタ管理 (顧客 / 商品 / 経費科目 / 支払方法) ==================
+  let _currentMasterTab = "customer";
+  function _switchMasterTab(name) {
+    _currentMasterTab = name;
+    document.querySelectorAll(".master-tab").forEach(b => b.classList.toggle("active", b.dataset.masterTab === name));
+    document.querySelectorAll(".master-pane").forEach(p => p.hidden = (p.dataset.masterPane !== name));
+    renderMasterScreen();
+  }
+  function renderMasterScreen() {
+    if (_currentMasterTab === "customer") _renderCustomerMaster();
+    if (_currentMasterTab === "product")  _renderProductMaster();
+    if (_currentMasterTab === "expCat")   _renderExpCatMaster();
+    if (_currentMasterTab === "payment")  _renderPaymentMaster();
+  }
+  function _renderCustomerMaster() {
+    const q = ($("#custSearch") && $("#custSearch").value || "").trim();
+    const list = loadCustomers().filter(c => !q || (c.name + " " + (c.phone || "")).includes(q));
+    const el = $("#custList");
+    if (!el) return;
+    if (!list.length) {
+      el.innerHTML = `<div class="master-empty">${q ? "該当する顧客がいません" : "顧客マスタは空です。下のフォームから追加してください。"}</div>`;
+      return;
+    }
+    el.innerHTML = list.map(c => `
+      <div class="master-item">
+        <div class="mi-body">
+          <div class="mi-title">${escapeHtml(c.name)}${c.active === false ? " <small style='color:#8a92a3'>(無効)</small>" : ""}</div>
+          <div class="mi-sub">
+            ${c.phone ? "📞 " + escapeHtml(c.phone) + " / " : ""}
+            ${c.carModel ? escapeHtml(c.carModel) : ""}${c.carNumber ? " " + escapeHtml(c.carNumber) : ""}
+            ${c.tireSize ? " / " + escapeHtml(c.tireSize) : ""}
+            ${c.lastVisit ? " / 最終来店: " + escapeHtml(c.lastVisit) : ""}
+            ${c.totalSales ? " / 累計: " + yen(c.totalSales) : ""}
+          </div>
+        </div>
+        <div class="mi-actions">
+          <button class="btn ghost small" data-cust-edit="${c.id}">編集</button>
+          <button class="btn ghost small" data-cust-del="${c.id}">削除</button>
+        </div>
+      </div>
+    `).join("");
+    el.querySelectorAll("[data-cust-edit]").forEach(b => b.addEventListener("click", () => _loadCustomerForm(b.dataset.custEdit)));
+    el.querySelectorAll("[data-cust-del]").forEach(b => b.addEventListener("click", () => {
+      if (confirm("この顧客を削除しますか？")) { removeCustomer(b.dataset.custDel); _renderCustomerMaster(); }
+    }));
+  }
+  function _loadCustomerForm(id) {
+    const c = loadCustomers().find(x => x.id === id);
+    if (!c) return;
+    $("#custEditId").value     = c.id;
+    $("#custName").value       = c.name;
+    $("#custPhone").value      = c.phone;
+    $("#custCarModel").value   = c.carModel;
+    $("#custCarNumber").value  = c.carNumber;
+    $("#custTireSize").value   = c.tireSize;
+    $("#custAddress").value    = c.address;
+    $("#custNote").value       = c.note;
+    $("#custName").focus();
+  }
+  function _resetCustomerForm() {
+    ["custEditId","custName","custPhone","custCarModel","custCarNumber","custTireSize","custAddress","custNote"]
+      .forEach(id => { const el = $("#" + id); if (el) el.value = ""; });
+  }
+  function _renderProductMaster() {
+    const q = ($("#prodSearch") && $("#prodSearch").value || "").trim();
+    const list = loadProducts().filter(p => !q || p.name.includes(q));
+    const el = $("#prodList");
+    if (!el) return;
+    if (!list.length) {
+      el.innerHTML = `<div class="master-empty">${q ? "該当する商品がありません" : "商品マスタは空です。下のフォームから追加してください。"}</div>`;
+      return;
+    }
+    el.innerHTML = list.map(p => `
+      <div class="master-item">
+        <div class="mi-body">
+          <div class="mi-title">${escapeHtml(p.name)}${p.active === false ? " <small style='color:#8a92a3'>(無効)</small>" : ""}</div>
+          <div class="mi-sub">
+            ${p.category ? escapeHtml(p.category) + " / " : ""}
+            ${p.tireSize ? escapeHtml(p.tireSize) + " / " : ""}
+            ${p.unitPrice ? "売価 " + yen(p.unitPrice) : ""}
+            ${p.costPrice ? " / 仕入 " + yen(p.costPrice) : ""}
+            ${p.stockManaged ? " / 在庫管理" : ""}
+          </div>
+        </div>
+        <div class="mi-actions">
+          <button class="btn ghost small" data-prod-edit="${p.id}">編集</button>
+          <button class="btn ghost small" data-prod-del="${p.id}">削除</button>
+        </div>
+      </div>
+    `).join("");
+    el.querySelectorAll("[data-prod-edit]").forEach(b => b.addEventListener("click", () => _loadProductForm(b.dataset.prodEdit)));
+    el.querySelectorAll("[data-prod-del]").forEach(b => b.addEventListener("click", () => {
+      if (confirm("この商品を削除しますか？")) { removeProduct(b.dataset.prodDel); _renderProductMaster(); _renderPurchaseProductDatalist(); }
+    }));
+  }
+  function _loadProductForm(id) {
+    const p = loadProducts().find(x => x.id === id);
+    if (!p) return;
+    $("#prodEditId").value      = p.id;
+    $("#prodName").value        = p.name;
+    $("#prodCategory").value    = p.category;
+    $("#prodTireSize").value    = p.tireSize;
+    $("#prodUnitPrice").value   = p.unitPrice || "";
+    $("#prodCostPrice").value   = p.costPrice || "";
+    $("#prodStockManaged").checked = !!p.stockManaged;
+    $("#prodNote").value        = p.note;
+    $("#prodName").focus();
+  }
+  function _resetProductForm() {
+    ["prodEditId","prodName","prodCategory","prodTireSize","prodUnitPrice","prodCostPrice","prodNote"]
+      .forEach(id => { const el = $("#" + id); if (el) el.value = ""; });
+    if ($("#prodStockManaged")) $("#prodStockManaged").checked = false;
+  }
+  function _renderExpCatMaster() {
+    const el = $("#expCatList");
+    if (!el) return;
+    el.innerHTML = EXPENSE_CATEGORIES.map(c => `
+      <div class="master-item"><div class="mi-body"><div class="mi-title">${escapeHtml(c)}</div></div></div>
+    `).join("");
+  }
+  function _renderPaymentMaster() {
+    const el = $("#paymentList");
+    if (!el) return;
+    el.innerHTML = PAYMENT_METHODS_MASTER.map(p => `
+      <div class="master-item"><div class="mi-body"><div class="mi-title">${escapeHtml(p)}</div></div></div>
+    `).join("");
+  }
+  function setupMasterManagement() {
+    // タブ切替
+    document.querySelectorAll(".master-tab").forEach(b => {
+      b.addEventListener("click", () => _switchMasterTab(b.dataset.masterTab));
+    });
+    // 検索
+    if ($("#custSearch")) $("#custSearch").addEventListener("input", _renderCustomerMaster);
+    if ($("#prodSearch")) $("#prodSearch").addEventListener("input", _renderProductMaster);
+    // 顧客 保存 / クリア
+    if ($("#custSaveBtn")) $("#custSaveBtn").addEventListener("click", () => {
+      const name = ($("#custName").value || "").trim();
+      if (!name) { toast("顧客名を入力してください"); $("#custName").focus(); return; }
+      upsertCustomer({
+        id:        $("#custEditId").value || "",
+        name,
+        phone:     $("#custPhone").value || "",
+        carModel:  $("#custCarModel").value || "",
+        carNumber: $("#custCarNumber").value || "",
+        tireSize:  $("#custTireSize").value || "",
+        address:   $("#custAddress").value || "",
+        note:      $("#custNote").value || ""
+      });
+      toast("顧客マスタを保存しました");
+      _resetCustomerForm();
+      _renderCustomerMaster();
+    });
+    if ($("#custResetBtn")) $("#custResetBtn").addEventListener("click", _resetCustomerForm);
+    // 商品 保存 / クリア
+    if ($("#prodSaveBtn")) $("#prodSaveBtn").addEventListener("click", () => {
+      const name = ($("#prodName").value || "").trim();
+      if (!name) { toast("商品名を入力してください"); $("#prodName").focus(); return; }
+      upsertProduct({
+        id:           $("#prodEditId").value || "",
+        name,
+        category:     $("#prodCategory").value || "",
+        tireSize:     $("#prodTireSize").value || "",
+        unitPrice:    parseAmountInput($("#prodUnitPrice").value),
+        costPrice:    parseAmountInput($("#prodCostPrice").value),
+        stockManaged: $("#prodStockManaged").checked,
+        note:         $("#prodNote").value || ""
+      });
+      toast("商品マスタを保存しました");
+      _resetProductForm();
+      _renderProductMaster();
+      _renderPurchaseProductDatalist();
+    });
+    if ($("#prodResetBtn")) $("#prodResetBtn").addEventListener("click", _resetProductForm);
+    // 初期描画
+    renderMasterScreen();
+  }
+
   // ================== 売上: 音声入力 (v3.11) ==================
   // メイン導線: スマホ標準キーボードの音声入力ボタンを利用
   //   1. 「📱 スマホ音声入力を使う」ボタン → textareaにフォーカス → スマホでキーボード起動
@@ -1461,6 +1967,13 @@
   // ================== 売上: 確認画面 (v3) ==================
   function renderSalesConfirm() {
     if (!draftSale) draftSale = newEmptySalesDraft();
+    // v3.18.0 (第1分割): 顧客マスタを <datalist> に流し込み、お客様名欄で候補表示
+    const cusList = $("#customerSuggestList");
+    if (cusList) {
+      cusList.innerHTML = loadCustomers().filter(c => c.active !== false)
+        .map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.carModel || "")} ${escapeHtml(c.carNumber || "")}</option>`)
+        .join("");
+    }
     // 大型サマリー
     $("#confTotal").value      = draftSale.total || "";
     $("#confQty").value        = draftSale.qty || "";
@@ -1520,6 +2033,14 @@
     $("#confStoreName").addEventListener("input", e => draftSale.storeName = e.target.value);
     $("#confStaff").addEventListener("input",     e => draftSale.staff     = e.target.value);
     $("#confCustomer").addEventListener("input",  e => draftSale.customer  = e.target.value);
+    // v3.18.0 (第1分割): 顧客マスタからの候補選択時に車種・車両番号・タイヤサイズを自動補完 (空欄時のみ)
+    $("#confCustomer").addEventListener("change", e => {
+      const c = findCustomerByName(e.target.value);
+      if (!c) return;
+      if (!$("#confCarModel").value  && c.carModel)  { $("#confCarModel").value  = c.carModel;  draftSale.carModel  = c.carModel; }
+      if (!$("#confCarNumber").value && c.carNumber) { $("#confCarNumber").value = c.carNumber; draftSale.carNumber = c.carNumber; }
+      if (!$("#confTireSize").value  && c.tireSize)  { $("#confTireSize").value  = c.tireSize;  draftSale.tireSize  = c.tireSize; }
+    });
     // 車両
     $("#confCarModel").addEventListener("input",  e => draftSale.carModel  = e.target.value);
     $("#confCarNumber").addEventListener("input", e => draftSale.carNumber = e.target.value);
@@ -1578,6 +2099,20 @@
       draftSale = null;
       // 音声画面のリセット (v3.11: micBtn は廃止、textareaのみクリア)
       $("#voiceTranscript").value = "";
+
+      // v3.18.0 (第1分割): 顧客マスタの最終来店日・累計売上を自動更新 (登録済み顧客のみ)
+      //   未登録顧客の自動追加は行わない (大量登録防止)。
+      //   マスタ管理画面で店長が確認しながら追加できる導線を別途用意。
+      if (rec.customer) {
+        _bumpCustomerOnSale(rec.customer, rec.total, rec.date);
+        if (!findCustomerByName(rec.customer)) {
+          // トーストで顧客マスタへの追加を提案 (自動追加はせず、店長判断で追加)
+          setTimeout(() => {
+            toast(`「${rec.customer}」は顧客マスタに未登録です。マスタ管理から追加できます。`);
+          }, 1200);
+        }
+      }
+
       renderAll();
 
       // v3.17.4: Google スプレッドシートへ非同期送信 (fire-and-forget)
@@ -4599,6 +5134,9 @@
     setupExpenseUpload();
     setupExpenseModeAndManualForm(); // v3.17.8: モード選択カード + 手入力フォーム
     setupExpenseConfirm();
+    setupPurchaseForm();             // v3.18.0 (第1分割): 仕入登録 入力
+    setupPurchaseConfirm();          // v3.18.0 (第1分割): 仕入登録 確認
+    setupMasterManagement();         // v3.18.0 (第1分割): マスタ管理 (顧客/商品/経費科目/支払方法)
     setupRejectModal();
     setupImageZoomModal();
     setupCategoryChangeModal();

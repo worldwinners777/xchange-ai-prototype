@@ -187,6 +187,15 @@ main#app { flex: 1; width: 100%; max-width: 1280px; margin: 0 auto; }
 .action-row.primary-action.expense .ar-sub   { color: rgba(255,255,255,.85); }
 .action-row.primary-action.expense .ar-arrow { color: rgba(255,255,255,.7); }
 
+/* v3.18.0: 仕入登録 (橙系) */
+.action-row.primary-action.purchase {
+  background: linear-gradient(135deg, #b35a00, #d97c10);
+  color: #fff; border-color: transparent;
+  box-shadow: 0 4px 14px rgba(179,90,0,.25);
+}
+.action-row.primary-action.purchase .ar-sub   { color: rgba(255,255,255,.85); }
+.action-row.primary-action.purchase .ar-arrow { color: rgba(255,255,255,.7); }
+
 .action-row.alert {
   border: 1.5px solid #f7c8be;
   background: #fff7f5;
@@ -545,6 +554,83 @@ textarea.form-input { resize: vertical; }
 
 /* 必須マーク */
 .req { color: #c0322b; margin-left: 2px; font-weight: 700; }
+
+/* v3.18.0 (第1分割): 状況画面 (本日/今月) のカードグリッド */
+.status-date-row {
+  font-size: 13px; color: #4b5365; padding: 8px 10px; margin: 0 0 12px;
+  background: #f4f6fa; border: 1px solid #e3e7ee; border-radius: 8px;
+}
+.status-date-row strong { color: #1a1f2c; }
+.status-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
+}
+.status-card {
+  background: #fff; border: 1px solid #e3e7ee; border-radius: 12px;
+  padding: 12px 14px; min-width: 0;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.status-card .sc-label { font-size: 11.5px; color: #6b7488; font-weight: 700; }
+.status-card .sc-value { font-size: 22px; font-weight: 900; color: #1a1f2c; word-break: break-all; }
+.status-card .sc-sub   { font-size: 11px; color: #8a92a3; }
+.status-card.sales    .sc-value { color: #0b3d91; }
+.status-card.expense  .sc-value { color: #c0322b; }
+.status-card.purchase .sc-value { color: #6c4a00; }
+.status-card.gross.highlight {
+  grid-column: span 2;
+  background: linear-gradient(135deg, #0b3d91, #2f7ad9); border-color: #0b3d91; color: #fff;
+}
+.status-card.gross.highlight .sc-label,
+.status-card.gross.highlight .sc-value,
+.status-card.gross.highlight .sc-sub { color: #fff; }
+.status-card.pending .sc-value { color: #b35a00; }
+.status-card.reject  .sc-value { color: #b3284a; }
+@media (max-width: 360px) {
+  .status-grid { grid-template-columns: 1fr; }
+  .status-card.gross.highlight { grid-column: auto; }
+}
+
+/* v3.18.0 (第1分割): マスタ管理 タブ + リスト */
+.master-tabs {
+  display: flex; gap: 4px; margin-bottom: 14px;
+  background: #f1f3f7; border-radius: 999px; padding: 4px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+.master-tab {
+  flex: 1; min-width: 64px;
+  font-size: 12.5px; font-weight: 700; color: #6b7488;
+  background: transparent; border: none; padding: 8px 12px; border-radius: 999px;
+  cursor: pointer; white-space: nowrap;
+}
+.master-tab.active { background: #fff; color: #0b3d91; box-shadow: 0 1px 3px rgba(11,61,145,0.15); }
+.master-list {
+  display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px;
+}
+.master-item {
+  background: #fff; border: 1px solid #e3e7ee; border-radius: 10px;
+  padding: 10px 12px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.master-item .mi-body { flex: 1; min-width: 0; }
+.master-item .mi-title { font-weight: 800; font-size: 14px; color: #1a1f2c; }
+.master-item .mi-sub   { font-size: 11.5px; color: #6b7488; line-height: 1.45; word-break: break-all; }
+.master-item .mi-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.master-item .mi-actions .btn { padding: 6px 10px; font-size: 11.5px; }
+.master-empty {
+  text-align: center; font-size: 12px; color: #8a92a3; padding: 20px 0;
+  background: #fafbfd; border: 1px dashed #e3e7ee; border-radius: 10px;
+}
+.master-form {
+  background: #fafbfd; border: 1px solid #e3e7ee; border-radius: 12px;
+  padding: 12px; margin-top: 6px;
+}
+.checkbox-label {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; color: #2d3648; cursor: pointer;
+}
+.checkbox-label input { width: 16px; height: 16px; }
+
+/* v3.18.0: 仕入アクション行 (店舗ホーム) */
+.action-row.purchase .ar-icon { background: #fff1e0; color: #b35a00; border-color: #f5cf9a; }
 
 /* v3.17.7: 開発者用要素 (本番では非表示)。dev-only クラス + body.dev-mode で開発時のみ表示 */
 .dev-only { display: none; }

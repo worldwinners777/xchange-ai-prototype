@@ -103,8 +103,32 @@
           <button class="action-row primary-action expense" data-go="store-expense-upload">
             <div class="ar-icon" aria-hidden="true">📷</div>
             <div class="ar-text">
-              <div class="ar-title">経費レシート登録</div>
-              <div class="ar-sub">レシートを撮影して登録</div>
+              <div class="ar-title">経費を登録</div>
+              <div class="ar-sub">OCR / 手入力で経費を登録</div>
+            </div>
+            <div class="ar-arrow" aria-hidden="true">›</div>
+          </button>
+          <button class="action-row primary-action purchase" data-go="store-purchase-upload">
+            <div class="ar-icon" aria-hidden="true">📦</div>
+            <div class="ar-text">
+              <div class="ar-title">仕入を登録</div>
+              <div class="ar-sub">タイヤ・部材の仕入を登録</div>
+            </div>
+            <div class="ar-arrow" aria-hidden="true">›</div>
+          </button>
+          <button class="action-row info" data-go="store-today-status">
+            <div class="ar-icon" aria-hidden="true">📊</div>
+            <div class="ar-text">
+              <div class="ar-title">本日の状況</div>
+              <div class="ar-sub" id="actionTodayStatusSub">売上・経費・仕入・粗利益</div>
+            </div>
+            <div class="ar-arrow" aria-hidden="true">›</div>
+          </button>
+          <button class="action-row info" data-go="store-month-status">
+            <div class="ar-icon" aria-hidden="true">📈</div>
+            <div class="ar-text">
+              <div class="ar-title">今月の状況</div>
+              <div class="ar-sub" id="actionMonthStatusSub">月初〜今日の累計</div>
             </div>
             <div class="ar-arrow" aria-hidden="true">›</div>
           </button>
@@ -131,6 +155,14 @@
               <div class="ar-sub" id="actionRejectSub">0件</div>
             </div>
             <span class="ar-badge" id="actionRejectBadge" hidden>0</span>
+            <div class="ar-arrow" aria-hidden="true">›</div>
+          </button>
+          <button class="action-row" data-go="store-master">
+            <div class="ar-icon" aria-hidden="true">📚</div>
+            <div class="ar-text">
+              <div class="ar-title">マスタ管理</div>
+              <div class="ar-sub">顧客 / 商品 / 経費科目 / 支払方法</div>
+            </div>
             <div class="ar-arrow" aria-hidden="true">›</div>
           </button>
         </div>
@@ -270,7 +302,8 @@
           </div>
           <div>
             <label class="form-label">お客様名</label>
-            <input type="text" id="confCustomer" class="form-input" placeholder="例：田中様" />
+            <input type="text" id="confCustomer" class="form-input" placeholder="例：田中様" list="customerSuggestList" autocomplete="off" />
+            <datalist id="customerSuggestList"></datalist>
           </div>
         </div>
 
@@ -657,6 +690,280 @@
       <div class="screen-pad">
         <p class="lead-alert" id="rejectionLead">本社から修正依頼が届いています。内容を確認し、必要な項目を修正して再提出してください。</p>
         <div class="recent-list rejection-list-v2" id="rejectionsList"></div>
+      </div>
+    </div>
+
+    <!-- v3.18.0 (第1分割): 本日の状況 -->
+    <div class="screen" data-screen="store-today-status">
+      <div class="screen-header">
+        <button class="back-btn" data-go="store-home" aria-label="戻る">←</button>
+        <div class="screen-header-title">本日の状況</div>
+      </div>
+      <div class="screen-pad">
+        <div class="status-date-row" id="todayStatusDate">—</div>
+        <div class="status-grid">
+          <div class="status-card sales"><div class="sc-label">本日売上</div><div class="sc-value" id="tsSalesAmt">¥0</div><div class="sc-sub" id="tsSalesCnt">0件</div></div>
+          <div class="status-card expense"><div class="sc-label">本日経費</div><div class="sc-value" id="tsExpAmt">¥0</div><div class="sc-sub" id="tsExpCnt">0件</div></div>
+          <div class="status-card purchase"><div class="sc-label">本日仕入</div><div class="sc-value" id="tsPurAmt">¥0</div><div class="sc-sub" id="tsPurCnt">0件</div></div>
+          <div class="status-card gross highlight"><div class="sc-label">本日粗利益(概算)</div><div class="sc-value" id="tsGross">¥0</div><div class="sc-sub">売上 − 経費 − 仕入</div></div>
+          <div class="status-card pending"><div class="sc-label">未確認</div><div class="sc-value" id="tsPending">0</div><div class="sc-sub">件</div></div>
+          <div class="status-card reject"><div class="sc-label">修正依頼</div><div class="sc-value" id="tsReject">0</div><div class="sc-sub">件</div></div>
+        </div>
+        <p class="form-sub" style="margin-top:14px">粗利益は概算です。本社側の確定計算は決算用集計で別途行います。</p>
+      </div>
+    </div>
+
+    <!-- v3.18.0 (第1分割): 今月の状況 -->
+    <div class="screen" data-screen="store-month-status">
+      <div class="screen-header">
+        <button class="back-btn" data-go="store-home" aria-label="戻る">←</button>
+        <div class="screen-header-title">今月の状況</div>
+      </div>
+      <div class="screen-pad">
+        <div class="status-date-row">
+          対象年月: <strong id="msYM">—</strong>
+          ／ 月初: <strong id="msFirst">—</strong>
+          ／ 本日: <strong id="msToday">—</strong>
+        </div>
+        <div class="status-grid">
+          <div class="status-card sales"><div class="sc-label">月初〜本日 売上</div><div class="sc-value" id="msSalesAmt">¥0</div><div class="sc-sub" id="msSalesCnt">0件</div></div>
+          <div class="status-card expense"><div class="sc-label">月初〜本日 経費</div><div class="sc-value" id="msExpAmt">¥0</div><div class="sc-sub" id="msExpCnt">0件</div></div>
+          <div class="status-card purchase"><div class="sc-label">月初〜本日 仕入</div><div class="sc-value" id="msPurAmt">¥0</div><div class="sc-sub" id="msPurCnt">0件</div></div>
+          <div class="status-card gross highlight"><div class="sc-label">月初〜本日 粗利益(概算)</div><div class="sc-value" id="msGross">¥0</div><div class="sc-sub">売上 − 経費 − 仕入</div></div>
+          <div class="status-card pending"><div class="sc-label">未確認</div><div class="sc-value" id="msPending">0</div><div class="sc-sub">件</div></div>
+          <div class="status-card reject"><div class="sc-label">修正依頼</div><div class="sc-value" id="msReject">0</div><div class="sc-sub">件</div></div>
+        </div>
+        <p class="form-sub" style="margin-top:14px">店長向けの簡易集計です。決算用の詳細集計は本社側で別途行います。</p>
+      </div>
+    </div>
+
+    <!-- v3.18.0 (第1分割): 仕入登録 -->
+    <div class="screen" data-screen="store-purchase-upload">
+      <div class="screen-header">
+        <button class="back-btn" data-go="store-home" aria-label="戻る">←</button>
+        <div class="screen-header-title">仕入登録</div>
+      </div>
+      <div class="screen-pad">
+        <p class="biz-note">📦 タイヤや部材の仕入を登録します。請求書番号・支払予定日・支払ステータスは本社が後で設定します。</p>
+        <div class="form-block">
+          <label class="form-label" for="purDate">仕入日 <span class="req">*</span></label>
+          <input type="date" id="purDate" class="form-input" />
+        </div>
+        <div class="form-block">
+          <label class="form-label" for="purVendor">仕入先 <span class="req">*</span></label>
+          <input type="text" id="purVendor" class="form-input" placeholder="例: ブリヂストンタイヤジャパン" autocomplete="off" />
+        </div>
+        <div class="form-block">
+          <label class="form-label" for="purProductName">商品名 <span class="req">*</span></label>
+          <input type="text" id="purProductName" class="form-input" placeholder="例: レグノGR-XII" list="purProductList" autocomplete="off" />
+          <datalist id="purProductList"></datalist>
+        </div>
+        <div class="form-block">
+          <label class="form-label" for="purTireSize">タイヤサイズ</label>
+          <input type="text" id="purTireSize" class="form-input" placeholder="例: 195/65R15" autocomplete="off" />
+        </div>
+        <div class="grid-2">
+          <div>
+            <label class="form-label" for="purQty">数量 <span class="req">*</span></label>
+            <input type="text" id="purQty" class="form-input" inputmode="numeric" autocomplete="off" placeholder="例: 4" />
+          </div>
+          <div>
+            <label class="form-label" for="purUnitPrice">単価</label>
+            <input type="text" id="purUnitPrice" class="form-input" inputmode="numeric" autocomplete="off" placeholder="例: 7716" />
+          </div>
+        </div>
+        <div class="form-block">
+          <label class="form-label" for="purTotal">仕入合計(税込) <span class="req">*</span></label>
+          <input type="text" id="purTotal" class="form-input" inputmode="numeric" autocomplete="off" placeholder="例: 185000" />
+        </div>
+        <div class="form-block">
+          <label class="form-label">支払方法 <span class="req">*</span></label>
+          <div class="payment-methods" id="purPayments" role="radiogroup">
+            <button class="pay-btn" type="button" data-pay="現金">現金</button>
+            <button class="pay-btn" type="button" data-pay="カード">カード</button>
+            <button class="pay-btn" type="button" data-pay="振込">振込</button>
+            <button class="pay-btn" type="button" data-pay="売掛">売掛</button>
+            <button class="pay-btn" type="button" data-pay="引落">引落</button>
+            <button class="pay-btn" type="button" data-pay="その他">その他</button>
+          </div>
+        </div>
+        <div class="form-block">
+          <label class="form-label" for="purNote">備考</label>
+          <textarea id="purNote" class="form-input" rows="2" placeholder="任意"></textarea>
+        </div>
+        <div class="action-bar">
+          <button class="btn ghost" type="button" data-go="store-home">キャンセル</button>
+          <button class="btn primary big" type="button" id="purNextBtn">次へ確認</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- v3.18.0 (第1分割): 仕入 登録前確認 -->
+    <div class="screen" data-screen="store-purchase-confirm">
+      <div class="screen-header">
+        <button class="back-btn" data-go="store-purchase-upload" aria-label="戻る">←</button>
+        <div class="screen-header-title">仕入 登録前確認</div>
+      </div>
+      <div class="screen-pad">
+        <div class="ai-banner">必ず内容をご確認ください。</div>
+        <div class="big-summary expense">
+          <div class="bs-amount-block">
+            <div class="bs-label">仕入合計(税込)</div>
+            <div class="bs-amount-row">
+              <span class="bs-currency">¥</span>
+              <input type="text" id="cpurTotal" class="bs-amount" inputmode="numeric" autocomplete="off" />
+            </div>
+          </div>
+          <div class="bs-grid">
+            <div class="bs-cell">
+              <div class="bs-label">仕入先</div>
+              <input type="text" id="cpurVendor" class="bs-text" />
+            </div>
+            <div class="bs-cell">
+              <div class="bs-label">支払方法</div>
+              <div class="bs-cat-display" id="cpurPayDisplay">—</div>
+            </div>
+          </div>
+        </div>
+        <h3 class="conf-section-title">支払方法</h3>
+        <div class="payment-methods" id="cpurPayments" role="radiogroup">
+          <button class="pay-btn" type="button" data-pay="現金">現金</button>
+          <button class="pay-btn" type="button" data-pay="カード">カード</button>
+          <button class="pay-btn" type="button" data-pay="振込">振込</button>
+          <button class="pay-btn" type="button" data-pay="売掛">売掛</button>
+          <button class="pay-btn" type="button" data-pay="引落">引落</button>
+          <button class="pay-btn" type="button" data-pay="その他">その他</button>
+        </div>
+        <h3 class="conf-section-title">基本情報</h3>
+        <div class="grid-2">
+          <div class="col-span-2">
+            <label class="form-label">仕入日</label>
+            <input type="date" id="cpurDate" class="form-input" />
+          </div>
+          <div>
+            <label class="form-label">商品名</label>
+            <input type="text" id="cpurProductName" class="form-input" />
+          </div>
+          <div>
+            <label class="form-label">タイヤサイズ</label>
+            <input type="text" id="cpurTireSize" class="form-input" />
+          </div>
+          <div>
+            <label class="form-label">数量</label>
+            <input type="text" id="cpurQty" class="form-input" inputmode="numeric" />
+          </div>
+          <div>
+            <label class="form-label">単価</label>
+            <input type="text" id="cpurUnitPrice" class="form-input" inputmode="numeric" />
+          </div>
+        </div>
+        <div class="form-block">
+          <label class="form-label">備考</label>
+          <textarea id="cpurNote" class="form-input" rows="2"></textarea>
+        </div>
+        <div class="action-bar">
+          <button class="btn ghost" type="button" data-go="store-purchase-upload">← 修正に戻る</button>
+          <button class="btn primary big" type="button" id="confirmPurchaseBtn">この内容で登録</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- v3.18.0 (第1分割): 仕入 登録完了 -->
+    <div class="screen" data-screen="store-purchase-done">
+      <div class="screen-pad center-pad">
+        <div class="done-mark">✓</div>
+        <h2 class="done-title">仕入を登録しました</h2>
+        <p class="done-sub">本社に即時反映されました。</p>
+        <div class="done-amount" id="donePurchaseAmount">¥0</div>
+        <div class="done-actions">
+          <button class="btn primary" data-go="store-purchase-upload">続けて仕入入力</button>
+          <button class="btn ghost" data-go="store-home">ホームへ</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- v3.18.0 (第1分割): マスタ管理 -->
+    <div class="screen" data-screen="store-master">
+      <div class="screen-header">
+        <button class="back-btn" data-go="store-home" aria-label="戻る">←</button>
+        <div class="screen-header-title">マスタ管理</div>
+      </div>
+      <div class="screen-pad">
+        <p class="biz-note">📚 店舗側で使うマスタを管理します。Googleスプレッドシートへの完全同期は次フェーズで対応します。</p>
+        <div class="master-tabs">
+          <button class="master-tab active" data-master-tab="customer">顧客</button>
+          <button class="master-tab" data-master-tab="product">商品</button>
+          <button class="master-tab" data-master-tab="expCat">経費科目</button>
+          <button class="master-tab" data-master-tab="payment">支払方法</button>
+        </div>
+
+        <!-- 顧客マスタ -->
+        <div class="master-pane" data-master-pane="customer">
+          <h3 class="conf-section-title">顧客マスタ</h3>
+          <div class="form-block">
+            <input type="text" id="custSearch" class="form-input" placeholder="顧客名・電話番号で検索" autocomplete="off" />
+          </div>
+          <div class="master-list" id="custList"></div>
+          <div class="master-form">
+            <h4 class="conf-section-title">新規追加 / 編集</h4>
+            <input type="hidden" id="custEditId" value="" />
+            <div class="form-block"><label class="form-label">顧客名 <span class="req">*</span></label><input type="text" id="custName" class="form-input" autocomplete="off" /></div>
+            <div class="grid-2">
+              <div><label class="form-label">電話番号</label><input type="tel" id="custPhone" class="form-input" autocomplete="off" placeholder="例: 03-1234-5678" /></div>
+              <div><label class="form-label">車種</label><input type="text" id="custCarModel" class="form-input" autocomplete="off" /></div>
+              <div><label class="form-label">車両番号</label><input type="text" id="custCarNumber" class="form-input" autocomplete="off" /></div>
+              <div><label class="form-label">タイヤサイズ</label><input type="text" id="custTireSize" class="form-input" autocomplete="off" /></div>
+            </div>
+            <div class="form-block"><label class="form-label">住所</label><input type="text" id="custAddress" class="form-input" autocomplete="off" /></div>
+            <div class="form-block"><label class="form-label">備考</label><textarea id="custNote" class="form-input" rows="2"></textarea></div>
+            <div class="action-bar">
+              <button class="btn ghost" type="button" id="custResetBtn">クリア</button>
+              <button class="btn primary" type="button" id="custSaveBtn">保存</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 商品マスタ -->
+        <div class="master-pane" data-master-pane="product" hidden>
+          <h3 class="conf-section-title">商品マスタ</h3>
+          <div class="form-block">
+            <input type="text" id="prodSearch" class="form-input" placeholder="商品名で検索" autocomplete="off" />
+          </div>
+          <div class="master-list" id="prodList"></div>
+          <div class="master-form">
+            <h4 class="conf-section-title">新規追加 / 編集</h4>
+            <input type="hidden" id="prodEditId" value="" />
+            <div class="form-block"><label class="form-label">商品名 <span class="req">*</span></label><input type="text" id="prodName" class="form-input" autocomplete="off" /></div>
+            <div class="grid-2">
+              <div><label class="form-label">分類</label><input type="text" id="prodCategory" class="form-input" autocomplete="off" placeholder="例: タイヤ / 工賃 / 部材" /></div>
+              <div><label class="form-label">タイヤサイズ</label><input type="text" id="prodTireSize" class="form-input" autocomplete="off" /></div>
+              <div><label class="form-label">標準単価(売価)</label><input type="text" id="prodUnitPrice" class="form-input" inputmode="numeric" autocomplete="off" /></div>
+              <div><label class="form-label">標準仕入単価</label><input type="text" id="prodCostPrice" class="form-input" inputmode="numeric" autocomplete="off" /></div>
+            </div>
+            <div class="form-block">
+              <label class="checkbox-label"><input type="checkbox" id="prodStockManaged" /> 在庫管理対象</label>
+            </div>
+            <div class="form-block"><label class="form-label">備考</label><textarea id="prodNote" class="form-input" rows="2"></textarea></div>
+            <div class="action-bar">
+              <button class="btn ghost" type="button" id="prodResetBtn">クリア</button>
+              <button class="btn primary" type="button" id="prodSaveBtn">保存</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 経費科目マスタ -->
+        <div class="master-pane" data-master-pane="expCat" hidden>
+          <h3 class="conf-section-title">経費科目マスタ</h3>
+          <p class="form-sub">経費登録の科目候補として使われます。本社確定科目は本社が別途確認します。</p>
+          <div class="master-list" id="expCatList"></div>
+        </div>
+
+        <!-- 支払方法マスタ -->
+        <div class="master-pane" data-master-pane="payment" hidden>
+          <h3 class="conf-section-title">支払方法マスタ</h3>
+          <p class="form-sub">売上・経費・仕入の支払方法候補として使われます。</p>
+          <div class="master-list" id="paymentList"></div>
+        </div>
       </div>
     </div>
 
