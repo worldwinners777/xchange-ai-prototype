@@ -993,10 +993,28 @@
             <span class="hni-icon" aria-hidden="true">💸</span>
             <span class="hni-label">経費一覧</span>
           </button>
+          <button class="hq-nav-item" data-hq-tab="purchases" role="tab">
+            <span class="hni-icon" aria-hidden="true">📦</span>
+            <span class="hni-label">仕入一覧</span>
+          </button>
           <button class="hq-nav-item" data-hq-tab="pending" role="tab">
             <span class="hni-icon" aria-hidden="true">⏳</span>
-            <span class="hni-label">未確認一覧</span>
+            <span class="hni-label">未確認データ</span>
             <span class="hni-badge" id="navPendingBadge" hidden>0</span>
+          </button>
+          <button class="hq-nav-item" data-hq-tab="revisions" role="tab">
+            <span class="hni-icon" aria-hidden="true">✏️</span>
+            <span class="hni-label">修正依頼一覧</span>
+            <span class="hni-badge" id="navRevisionsBadge" hidden>0</span>
+          </button>
+          <button class="hq-nav-item" data-hq-tab="confirmed" role="tab">
+            <span class="hni-icon" aria-hidden="true">✓</span>
+            <span class="hni-label">確認済み一覧</span>
+          </button>
+          <button class="hq-nav-item" data-hq-tab="holds" role="tab">
+            <span class="hni-icon" aria-hidden="true">⏸</span>
+            <span class="hni-label">保留一覧</span>
+            <span class="hni-badge" id="navHoldsBadge" hidden>0</span>
           </button>
           <button class="hq-nav-item" data-hq-tab="monthly" role="tab">
             <span class="hni-icon" aria-hidden="true">📅</span>
@@ -1005,6 +1023,10 @@
           <button class="hq-nav-item" data-hq-tab="csv" role="tab">
             <span class="hni-icon" aria-hidden="true">📥</span>
             <span class="hni-label">CSV出力</span>
+          </button>
+          <button class="hq-nav-item" data-hq-tab="oplogs" role="tab">
+            <span class="hni-icon" aria-hidden="true">📜</span>
+            <span class="hni-label">操作ログ</span>
           </button>
         </nav>
       </aside>
@@ -1244,6 +1266,7 @@
               <button class="pending-tab active" data-pending-type="all">全て <span class="ptab-num" id="ptabAll">0</span></button>
               <button class="pending-tab" data-pending-type="sale">売上 <span class="ptab-num" id="ptabSale">0</span></button>
               <button class="pending-tab" data-pending-type="expense">経費 <span class="ptab-num" id="ptabExpense">0</span></button>
+              <button class="pending-tab" data-pending-type="purchase">仕入 <span class="ptab-num" id="ptabPurchase">0</span></button>
             </div>
             <div id="hqPendingList" class="pending-list"></div>
           </div>
@@ -1390,10 +1413,94 @@
           </div>
         </div>
 
+        <!-- v3.18.1 (第2分割): 本社 仕入一覧 -->
+        <div class="hq-screen" data-hq-screen="purchases">
+          <div class="screen-pad">
+            <div class="hq-toolbar">
+              <h1 class="screen-title">仕入一覧</h1>
+              <div class="hq-page-sub">店舗から登録されたタイヤ・部材の仕入を確認します</div>
+            </div>
+            <div class="hq-card-list" id="hqPurchasesList"></div>
+          </div>
+        </div>
+
+        <!-- v3.18.1 (第2分割): 修正依頼一覧 (修正依頼 + 差戻し) -->
+        <div class="hq-screen" data-hq-screen="revisions">
+          <div class="screen-pad">
+            <div class="hq-toolbar">
+              <h1 class="screen-title">修正依頼一覧</h1>
+              <div class="hq-page-sub">本社が店舗に修正依頼・差戻しを出したデータの一覧です</div>
+            </div>
+            <div class="hq-card-list" id="hqRevisionsList"></div>
+          </div>
+        </div>
+
+        <!-- v3.18.1 (第2分割): 確認済み一覧 -->
+        <div class="hq-screen" data-hq-screen="confirmed">
+          <div class="screen-pad">
+            <div class="hq-toolbar">
+              <h1 class="screen-title">確認済み一覧</h1>
+              <div class="hq-page-sub">本社が確認済みにしたデータの一覧</div>
+            </div>
+            <div class="hq-card-list" id="hqConfirmedList"></div>
+          </div>
+        </div>
+
+        <!-- v3.18.1 (第2分割): 保留一覧 -->
+        <div class="hq-screen" data-hq-screen="holds">
+          <div class="screen-pad">
+            <div class="hq-toolbar">
+              <h1 class="screen-title">保留一覧</h1>
+              <div class="hq-page-sub">本社が判断保留にしているデータの一覧</div>
+            </div>
+            <div class="hq-card-list" id="hqHoldsList"></div>
+          </div>
+        </div>
+
+        <!-- v3.18.1 (第2分割): 操作ログ (簡易) -->
+        <div class="hq-screen" data-hq-screen="oplogs">
+          <div class="screen-pad">
+            <div class="hq-toolbar">
+              <h1 class="screen-title">操作ログ</h1>
+              <div class="hq-page-sub">確認・修正依頼・保留・差戻し・店舗対応の履歴 (直近500件)</div>
+            </div>
+            <div class="oplog-list" id="hqOpLogsList"></div>
+          </div>
+        </div>
+
       </div>
     </div>
 
   </section>
+
+  <!-- v3.18.1 (第2分割): 本社アクションモーダル (確認/修正依頼/保留/差戻し選択) -->
+  <div class="modal" id="hqActionModal" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">本社アクション</div>
+        <button class="modal-close" id="hqActionClose" aria-label="閉じる">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="hq-action-target" id="hqActionTarget"></div>
+        <div class="hq-action-buttons">
+          <button class="btn primary" type="button" data-hq-action="confirm">✓ 確認済みにする</button>
+          <button class="btn ghost"   type="button" data-hq-action="revise">✏️ 修正依頼を出す</button>
+          <button class="btn ghost"   type="button" data-hq-action="hold">⏸ 保留にする</button>
+          <button class="btn ghost"   type="button" data-hq-action="sendBack">↩ 差戻しにする</button>
+        </div>
+        <div class="hq-action-revise-form" id="hqActionReviseForm" hidden>
+          <h4 class="conf-section-title">修正依頼内容</h4>
+          <p class="form-sub">店舗側の「本社からの修正依頼」画面に表示されます。</p>
+          <div class="quick-reasons" id="hqReviseQuickReasons"></div>
+          <textarea id="hqReviseText" class="form-input" rows="3" placeholder="例: 車両番号を確認してください / 金額の根拠を確認してください / レシート画像が不鮮明です"></textarea>
+          <div class="action-bar">
+            <button class="btn ghost" type="button" id="hqReviseCancel">キャンセル</button>
+            <button class="btn primary" type="button" id="hqReviseConfirm">この内容で送信</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ===================== 共通: 詳細モーダル ===================== -->
   <div class="modal" id="detailModal" hidden>

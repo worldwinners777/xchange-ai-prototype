@@ -212,14 +212,32 @@
   ];
 
   // ================== ストレージ ==================
-  // ===== v3.2: 確認ステータス =====
-  // 旧 "承認待ち"/"承認済み" → 新 "未確認"/"確認済み" + 新規 "月次処理済み"
-  const STATUSES = ["未確認","確認済み","修正依頼","月次処理済み"];
+  // ===== v3.2 → v3.18.1 (第2分割): 確認ステータス (6状態) =====
+  // 旧 "承認待ち"/"承認済み" → 新 "未確認"/"確認済み" + "修正依頼" + "差戻し" + "保留" + "月次処理済み"
+  const STATUSES = ["未確認","確認済み","修正依頼","差戻し","保留","月次処理済み"];
+
+  // v3.18.1: ステータス値→絵文字バッジ用ラベル
+  const STATUS_BADGE = {
+    "未確認":      { icon: "⏳", color: "pending" },
+    "確認済み":    { icon: "✓",  color: "ok" },
+    "修正依頼":    { icon: "✏️", color: "warn" },
+    "差戻し":      { icon: "↩",  color: "reject" },
+    "保留":        { icon: "⏸",  color: "hold" },
+    "月次処理済み": { icon: "🔒", color: "lock" }
+  };
 
   function migrateRecord(r) {
     // ステータス名のマイグレーション
     if (r.status === "承認待ち")      r.status = "未確認";
     else if (r.status === "承認済み") r.status = "確認済み";
+    // v3.18.1: 新フィールドの初期化 (既存レコード後方互換)
+    if (typeof r.confirmStatus     === "undefined") r.confirmStatus     = r.status || "未確認";
+    if (typeof r.hqConfirmedBy     === "undefined") r.hqConfirmedBy     = "";
+    if (typeof r.hqConfirmedAt     === "undefined") r.hqConfirmedAt     = "";
+    if (typeof r.hasRevisionRequest === "undefined") r.hasRevisionRequest = (r.status === "修正依頼" || r.status === "差戻し");
+    if (typeof r.revisionRequestText  === "undefined") r.revisionRequestText  = r.rejectReason || "";
+    if (typeof r.revisionRequestedAt  === "undefined") r.revisionRequestedAt  = r.rejectedAt || "";
+    if (typeof r.revisionRequestedBy  === "undefined") r.revisionRequestedBy  = r.rejectedBy || (r.hasRevisionRequest ? "本社" : "");
     return r;
   }
   function loadAll() {
@@ -311,6 +329,110 @@
     const list = loadCustomers().map(x => x.id === c.id ? c : x);
     saveCustomers(list);
   }
+
+  // ===== v3.18.1 (第2分割): 共通ビジネスレコード ヘルパ =====
+  // 売上 / 経費 / 仕入 を type フィールドで横断するヘルパ群。
+  //   getAllBusinessRecords() — 全 type を含む業務レコード配列
+  //   getRecordByTypeAndId(type, id) — type と id で一意に取得
+  //   updateRecordByTypeAndId(type, id, patch) — レコード更新 + 自動保存。confirmStatus と status を同期。
+  //   getRecordsByConfirmStatus(status) — confirmStatus でフィルタ
+  //   getRevisionRequestRecords() — 修正依頼 + 差戻し のみ
+  function getAllBusinessRecords() {
+    return records.filter(r => r.type === "sale" || r.type === "expense" || r.type === "purchase");
+  }
+  function getRecordByTypeAndId(type, id) {
+    return records.find(r => r.type === type && r.id === id) || null;
+  }
+  function updateRecordByTypeAndId(type, id, patch) {
+    const r = getRecordByTypeAndId(type, id);
+    if (!r) return null;
+    Object.assign(r, patch);
+    // confirmStatus と status を同期 (後方互換: 既存コードは r.status を読む)
+    if (patch.confirmStatus && r.status !== patch.confirmStatus) r.status = patch.confirmStatus;
+    if (patch.status && r.confirmStatus !== patch.status)         r.confirmStatus = patch.status;
+    saveAll(records);
+    return r;
+  }
+  function getRecordsByConfirmStatus(status) {
+    return getAllBusinessRecords().filter(r => (r.confirmStatus || r.status) === status);
+  }
+  function getRevisionRequestRecords() {
+    return getAllBusinessRecords().filter(r => {
+      const s = r.confirmStatus || r.status;
+      return s === "修正依頼" || s === "差戻し";
+    });
+  }
+  function _statusOf(r) { return r.confirmStatus || r.status || "未確認"; }
+
+  // ===== v3.18.1 (第2分割): 操作ログ (簡易・localStorage) =====
+  // 将来 Google Sheets の操作ログシートへ送信予定。
+  const OP_LOG_KEY = "xchange.opLogs.v1";
+  function loadOpLogs() { return _loadMaster(OP_LOG_KEY); }
+  function appendOpLog(operation, recordType, recordId, content, result) {
+    const logs = loadOpLogs();
+    logs.push({
+      id: "log-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
+      timestamp:  new Date().toISOString(),
+      operation:  operation || "",                       // "本社確認済み" / "修正依頼作成" / "保留" / "差戻し" / "店舗修正保存" / "店舗対応済み"
+      user:       currentRole === "hq" ? "本社" : "店舗",
+      recordType: recordType || "",                      // "sale" / "expense" / "purchase"
+      recordId:   recordId || "",
+      content:    content || "",
+      result:     result || "成功"
+    });
+    // 直近 500 件まで保持 (localStorage 肥大化防止)
+    if (logs.length > 500) logs.splice(0, logs.length - 500);
+    _saveMaster(OP_LOG_KEY, logs);
+  }
+
+  // ===== v3.18.1 (第2分割): 確認/修正依頼/保留/差戻し/対応済み のアクションヘルパ =====
+  // 将来 Google Sheets へ送信する action 名:
+  //   updateConfirmStatus / addRevisionRequest / markRevisionHandled
+  function confirmRecord(type, id) {
+    const now = new Date().toISOString();
+    updateRecordByTypeAndId(type, id, {
+      confirmStatus: "確認済み", status: "確認済み",
+      hqConfirmedBy: "本社", hqConfirmedAt: now,
+      hasRevisionRequest: false,
+      revisionRequestText: "", revisionRequestedAt: "", revisionRequestedBy: ""
+    });
+    appendOpLog("本社確認済み", type, id, "");
+  }
+  function reviseRecord(type, id, text) {
+    const now = new Date().toISOString();
+    updateRecordByTypeAndId(type, id, {
+      confirmStatus: "修正依頼", status: "修正依頼",
+      hasRevisionRequest: true,
+      revisionRequestText: text || "", revisionRequestedAt: now, revisionRequestedBy: "本社",
+      rejectReason: text || "", rejectedAt: now, rejectedBy: "本社" // 既存フィールド後方互換
+    });
+    appendOpLog("修正依頼作成", type, id, text || "");
+  }
+  function holdRecord(type, id) {
+    updateRecordByTypeAndId(type, id, { confirmStatus: "保留", status: "保留" });
+    appendOpLog("保留", type, id, "");
+  }
+  function sendBackRecord(type, id, text) {
+    const now = new Date().toISOString();
+    updateRecordByTypeAndId(type, id, {
+      confirmStatus: "差戻し", status: "差戻し",
+      hasRevisionRequest: true,
+      revisionRequestText: text || "差戻し", revisionRequestedAt: now, revisionRequestedBy: "本社",
+      rejectReason: text || "差戻し", rejectedAt: now, rejectedBy: "本社"
+    });
+    appendOpLog("差戻し", type, id, text || "");
+  }
+  function markStoreHandled(type, id) {
+    const now = new Date().toISOString();
+    updateRecordByTypeAndId(type, id, {
+      confirmStatus: "未確認", status: "未確認",
+      hasRevisionRequest: false,
+      revisionRequestText: "",
+      revisionHandledAt: now, revisionHandledBy: "店舗"
+    });
+    appendOpLog("店舗対応済み", type, id, "");
+  }
+
   function seedDemo() {
     const now = new Date();
     const yymm = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -1311,9 +1433,14 @@
     if (name === "sales")         renderHQSales();
     if (name === "sales-report")  renderSalesReport();
     if (name === "expenses")      renderHQExpenses();
+    if (name === "purchases")     renderHQPurchases();    // v3.18.1
     if (name === "pending")       renderHQPending();
+    if (name === "revisions")     renderHQRevisions();    // v3.18.1
+    if (name === "confirmed")     renderHQConfirmed();    // v3.18.1
+    if (name === "holds")         renderHQHolds();        // v3.18.1
     if (name === "monthly")       { ensureMonthPicker(); renderMonthly(); }
     if (name === "csv")           renderHQCSV();
+    if (name === "oplogs")        renderHQOpLogs();       // v3.18.1
   }
   function ensureMonthPicker() {
     const p = $("#monthlyPicker");
@@ -1342,8 +1469,9 @@
     const cost          = todayExpense.filter(isCostCategory).reduce((s,r) => s + r.amount, 0);
     const opex          = todayExpense.filter(r => !isCostCategory(r)).reduce((s,r) => s + r.amount, 0);
     const gross         = salesAmount - cost - opex;
-    const pending       = records.filter(r => r.status === "未確認").length;
-    const reject        = records.filter(r => r.status === "修正依頼").length;
+    // v3.18.1: 修正依頼 + 差戻し を「修正依頼」件数に含める (店舗側の対応必要件数)
+    const pending       = records.filter(r => _statusOf(r) === "未確認").length;
+    const reject        = records.filter(r => { const s = _statusOf(r); return s === "修正依頼" || s === "差戻し"; }).length;
 
     $("#todaySalesAmount").textContent      = yen(salesAmount);
     $("#todaySalesCount").textContent       = `${todaySales.length}件`;
@@ -1400,17 +1528,20 @@
     el.innerHTML = list.map(recentRow).join("");
     bindRecentClicks(el);
   }
+  // v3.18.1 (第2分割): 修正依頼 + 差戻し を両方対象にし、「対応済みにする」ボタンを追加
   function renderStoreRejections() {
-    const list = records.filter(r => r.status === "修正依頼")
-                        .sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const list = getAllBusinessRecords().filter(r => {
+      const s = _statusOf(r);
+      return s === "修正依頼" || s === "差戻し";
+    }).sort((a,b) => new Date(b.revisionRequestedAt || b.createdAt) - new Date(a.revisionRequestedAt || a.createdAt));
     const lead = $("#rejectionLead");
     if (!list.length) {
-      lead.innerHTML = `現在、本社からの修正依頼はありません。`;
+      lead.innerHTML = `現在、本社からの修正依頼・差戻しはありません。`;
       lead.style.background = "#dff5e8";
       lead.style.borderColor = "#9be0b9";
       lead.style.color = "#0a7a4d";
     } else {
-      lead.innerHTML = `本社から <strong>${list.length}件</strong> の修正依頼が届いています。<br/>内容を確認し、必要な項目を修正して再提出してください。`;
+      lead.innerHTML = `本社から <strong>${list.length}件</strong> の修正依頼・差戻しが届いています。<br/>内容を確認し、必要な項目を修正して再提出するか、修正不要なら「対応済みにする」を押してください。`;
       lead.style.background = "";
       lead.style.borderColor = "";
       lead.style.color = "";
@@ -1420,34 +1551,35 @@
     el.innerHTML = list.map(rejectionCardV2).join("");
     bindRejectionCardActions(el);
   }
-  // v3.5: 修正依頼カード v2 (情報リッチ + 3ボタン)
+  // v3.5 / v3.18.1: 修正依頼カード (売上/経費/仕入対応、内容確認/修正/対応済み の3ボタン)
   function rejectionCardV2(r) {
-    const isSale = r.type === "sale";
     const date = r.date || (r.createdAt ? new Date(r.createdAt).toISOString().slice(0, 10) : "—");
-    const title = isSale
+    const title = r.type === "sale"
       ? `${r.customer || "—"} / ${r.productName || (r.items && r.items[0] && r.items[0].name) || "—"}`
-      : (r.vendor || "—");
-    const amount = isSale ? r.total : r.amount;
-    const rej = r.rejection || { note: "（修正依頼コメントなし）", at: r.createdAt };
-    const rejAt = rej.at ? fmtFullDate(rej.at) : "—";
+      : (r.vendor || "—") + (r.productName ? ` / ${r.productName}` : "");
+    const amount = _recAmount(r);
+    const rejNote = r.revisionRequestText || (r.rejection && r.rejection.note) || r.rejectReason || "（修正依頼コメントなし）";
+    const rejAtRaw = r.revisionRequestedAt || (r.rejection && r.rejection.at) || r.rejectedAt || r.createdAt;
+    const rejAt = rejAtRaw ? fmtFullDate(rejAtRaw) : "—";
+    const rejBy = r.revisionRequestedBy || (r.rejection && "本社") || "本社";
     return `
       <div class="rejection-card-v2" data-id="${r.id}">
         <div class="rcv-header">
-          <span class="rcv-tag ${isSale ? "sales" : "expense"}">${isSale ? "売上" : "経費"}</span>
+          <span class="rcv-tag ${r.type === "sale" ? "sales" : "expense"}">${_typeLabel(r.type)}</span>
           <span class="rcv-date">📅 ${escapeHtml(date)}</span>
-          ${statusPill(r.status)}
+          ${_statusPill(_statusOf(r))}
         </div>
         <div class="rcv-title">${escapeHtml(title)}</div>
         <div class="rcv-amount">${yen(amount)}</div>
         <div class="rcv-rejection">
-          <div class="rcv-rej-label">⚠️ 本社からの修正依頼</div>
-          <div class="rcv-rej-text">${escapeHtml(rej.note)}</div>
-          <div class="rcv-rej-at">送信日時: ${rejAt}</div>
+          <div class="rcv-rej-label">⚠️ 本社からの${_statusOf(r) === "差戻し" ? "差戻し" : "修正依頼"}</div>
+          <div class="rcv-rej-text">${escapeHtml(rejNote)}</div>
+          <div class="rcv-rej-at">依頼者: ${escapeHtml(rejBy)} / 送信日時: ${rejAt}</div>
         </div>
         <div class="rcv-actions">
-          <button type="button" class="btn ghost"   data-rej-action="detail">👁 詳細を見る</button>
+          <button type="button" class="btn ghost"   data-rej-action="detail">👁 内容を確認</button>
           <button type="button" class="btn primary" data-rej-action="edit">✏️ 修正する</button>
-          <button type="button" class="btn success" data-rej-action="edit-submit">📤 修正して再提出</button>
+          <button type="button" class="btn ghost"   data-rej-action="handled">✓ 対応済みにする</button>
         </div>
       </div>
     `;
@@ -1459,10 +1591,17 @@
         const card = b.closest("[data-id]");
         if (!card) return;
         const id = card.dataset.id;
+        const rec = records.find(r => r.id === id);
+        if (!rec) return;
         switch (b.dataset.rejAction) {
-          case "detail":       openDetail(id); break;
-          case "edit":
-          case "edit-submit":  openStoreEditModal(id); break;
+          case "detail":  openDetail(id); break;
+          case "edit":    openStoreEditModal(id); break;
+          case "handled":
+            if (!confirm("修正不要として「対応済み」にしますか？\n本社側の未確認一覧に再表示されます。")) return;
+            markStoreHandled(rec.type, id);
+            toast("対応済みにしました。本社へ再送信されます。");
+            renderAll();
+            break;
         }
       });
     });
@@ -3284,11 +3423,27 @@
     $("#kpiPendingExpense").textContent    = String(pendingExp);
     $("#kpiRejected").textContent          = String(rejected);
 
-    // サイドバーバッジ
-    const total = pendingSales + pendingExp;
+    // サイドバーバッジ (v3.18.1: 未確認/修正依頼/保留 をそれぞれ表示)
+    //   未確認は仕入も含む
+    const pendingPur   = getAllBusinessRecords().filter(r => r.type === "purchase" && _statusOf(r) === "未確認").length;
+    const pendingTotal = pendingSales + pendingExp + pendingPur;
     const badge = $("#navPendingBadge");
-    if (total > 0) { badge.hidden = false; badge.textContent = String(total); }
+    if (pendingTotal > 0) { badge.hidden = false; badge.textContent = String(pendingTotal); }
     else { badge.hidden = true; }
+    // 修正依頼/差戻し
+    const revisionsTotal = getRevisionRequestRecords().length;
+    const revBadge = $("#navRevisionsBadge");
+    if (revBadge) {
+      if (revisionsTotal > 0) { revBadge.hidden = false; revBadge.textContent = String(revisionsTotal); }
+      else { revBadge.hidden = true; }
+    }
+    // 保留
+    const holdsTotal = getRecordsByConfirmStatus("保留").length;
+    const holdBadge = $("#navHoldsBadge");
+    if (holdBadge) {
+      if (holdsTotal > 0) { holdBadge.hidden = false; holdBadge.textContent = String(holdsTotal); }
+      else { holdBadge.hidden = true; }
+    }
 
     // 未確認リスト (上位)
     const pending = [...records]
@@ -3687,37 +3842,32 @@
     });
   }
 
-  // ================== 本社: 未確認一覧 ==================
+  // ================== 本社: 未確認一覧 (v3.18.1: 仕入対応 + 4アクションボタン) ==================
   function renderHQPending() {
-    const allUnsorted = records.filter(r => r.status === "未確認");
+    const allUnsorted = getAllBusinessRecords().filter(r => _statusOf(r) === "未確認");
     const all   = sortByDate(allUnsorted, hqSort.pending);
     const sales = all.filter(r => r.type === "sale");
     const exps  = all.filter(r => r.type === "expense");
-    $("#ptabAll").textContent     = String(all.length);
-    $("#ptabSale").textContent    = String(sales.length);
-    $("#ptabExpense").textContent = String(exps.length);
+    const purs  = all.filter(r => r.type === "purchase");
+    if ($("#ptabAll"))      $("#ptabAll").textContent      = String(all.length);
+    if ($("#ptabSale"))     $("#ptabSale").textContent     = String(sales.length);
+    if ($("#ptabExpense"))  $("#ptabExpense").textContent  = String(exps.length);
+    if ($("#ptabPurchase")) $("#ptabPurchase").textContent = String(purs.length);
     updateSortBtnLabel("#pendingSortBtn", hqSort.pending);
 
     let list = all;
-    if (pendingFilter === "sale")    list = sales;
-    if (pendingFilter === "expense") list = exps;
+    if (pendingFilter === "sale")     list = sales;
+    if (pendingFilter === "expense")  list = exps;
+    if (pendingFilter === "purchase") list = purs;
 
     const el = $("#hqPendingList");
     if (!list.length) {
       el.innerHTML = `<div class="empty">未確認の登録はありません</div>`;
       return;
     }
-    el.innerHTML = list.map(pendingCard).join("");
-
-    el.querySelectorAll("[data-pc-detail]").forEach(b => {
-      b.addEventListener("click", (e) => { e.stopPropagation(); openDetail(b.dataset.pcDetail); });
-    });
-    el.querySelectorAll("[data-pc-approve]").forEach(b => {
-      b.addEventListener("click", (e) => { e.stopPropagation(); approve(b.dataset.pcApprove); });
-    });
-    el.querySelectorAll("[data-pc-reject]").forEach(b => {
-      b.addEventListener("click", (e) => { e.stopPropagation(); openReject(b.dataset.pcReject); });
-    });
+    // v3.18.1: 統一カード (確認/修正依頼/保留 の3アクション)
+    el.innerHTML = list.map(r => _hqRecCard(r, "pending")).join("");
+    _bindHqRecCards(el);
   }
   function pendingCard(r) {
     const isSale = r.type === "sale";
@@ -3741,6 +3891,283 @@
         </div>
       </div>
     `;
+  }
+
+  // ================== v3.18.1 (第2分割): 本社 確認/修正依頼/保留/差戻し ==================
+  // 統一カード形式のレンダラ + アクションモーダル。
+  //   renderHQPurchases / renderHQRevisions / renderHQConfirmed / renderHQHolds / renderHQOpLogs
+  //   _hqRecCard(r, mode) — mode="pending"/"revision"/"confirmed"/"hold"/"purchase"
+  function _typeLabel(t) { return t === "sale" ? "売上" : t === "expense" ? "経費" : t === "purchase" ? "仕入" : t; }
+  function _statusPill(s) {
+    const b = STATUS_BADGE[s] || STATUS_BADGE["未確認"];
+    return `<span class="rc-status ${b.color}">${b.icon} ${escapeHtml(s || "未確認")}</span>`;
+  }
+  function _syncLabel(s) {
+    if (s === "synced") return `<span class="rc-sync synced">📡 Sheets同期: synced</span>`;
+    if (s === "failed") return `<span class="rc-sync failed">📡 Sheets同期: failed</span>`;
+    return `<span class="rc-sync">📡 Sheets同期: pending</span>`;
+  }
+  function _recSummary(r) {
+    if (r.type === "sale") {
+      const lines = [];
+      if (r.customer)   lines.push(`お客様: <strong>${escapeHtml(r.customer)}</strong>`);
+      if (r.productName) lines.push(`商品: ${escapeHtml(r.productName)}${r.tireSize ? " " + escapeHtml(r.tireSize) : ""}`);
+      if (r.carNumber)  lines.push(`車両: ${escapeHtml(r.carNumber)}`);
+      return lines.join(" / ") || "—";
+    }
+    if (r.type === "expense") {
+      const lines = [];
+      if (r.vendor)   lines.push(`購入先: <strong>${escapeHtml(r.vendor)}</strong>`);
+      if (r.content)  lines.push(`内容: ${escapeHtml(String(r.content).slice(0, 40))}`);
+      if (r.category) lines.push(`科目: ${escapeHtml(r.category)}`);
+      return lines.join(" / ") || "—";
+    }
+    if (r.type === "purchase") {
+      const lines = [];
+      if (r.vendor)      lines.push(`仕入先: <strong>${escapeHtml(r.vendor)}</strong>`);
+      if (r.productName) lines.push(`商品: ${escapeHtml(r.productName)}${r.tireSize ? " " + escapeHtml(r.tireSize) : ""}`);
+      if (r.qty)         lines.push(`数量: ${r.qty}`);
+      return lines.join(" / ") || "—";
+    }
+    return "";
+  }
+  function _recAmount(r) {
+    if (r.type === "sale")     return Number(r.total || 0);
+    if (r.type === "expense")  return Number(r.amount || 0);
+    if (r.type === "purchase") return Number(r.total || 0);
+    return 0;
+  }
+  // mode: "pending" (4 actions) / "revision" (確認/再依頼) / "confirmed" (詳細のみ) / "hold" (確認/解除) / "purchase" (詳細のみ)
+  function _hqRecCard(r, mode) {
+    const cs = _statusOf(r);
+    const sub = `${escapeHtml(fmtDate(r.createdAt))} ・ ${escapeHtml(r.storeName || "")} ・ ${escapeHtml(r.staff || "")} ・ 支払: ${escapeHtml(r.paymentMethod || "—")}`;
+    const revisionBlock = r.hasRevisionRequest || cs === "修正依頼" || cs === "差戻し"
+      ? `<div class="rc-revision">📝 ${escapeHtml(r.revisionRequestText || r.rejectReason || "(内容未記入)")}
+           <br><small>依頼: ${escapeHtml(r.revisionRequestedBy || "本社")} / ${escapeHtml(fmtDate(r.revisionRequestedAt || r.rejectedAt || ""))}</small></div>`
+      : "";
+    // アクションボタン
+    let actions = "";
+    if (mode === "pending") {
+      actions = `
+        <button class="btn ghost small"   data-rec-detail="${r.id}">詳細</button>
+        <button class="btn primary small" data-rec-confirm="${r.type}|${r.id}">✓ 確認済み</button>
+        <button class="btn ghost small"   data-rec-revise="${r.type}|${r.id}">✏️ 修正依頼</button>
+        <button class="btn ghost small"   data-rec-hold="${r.type}|${r.id}">⏸ 保留</button>
+      `;
+    } else if (mode === "revision") {
+      actions = `
+        <button class="btn ghost small"   data-rec-detail="${r.id}">詳細</button>
+        <button class="btn ghost small"   data-rec-revise="${r.type}|${r.id}">再修正依頼</button>
+      `;
+    } else if (mode === "hold") {
+      actions = `
+        <button class="btn ghost small"   data-rec-detail="${r.id}">詳細</button>
+        <button class="btn primary small" data-rec-confirm="${r.type}|${r.id}">✓ 確認済み</button>
+        <button class="btn ghost small"   data-rec-revise="${r.type}|${r.id}">✏️ 修正依頼</button>
+      `;
+    } else {
+      // confirmed / purchase (全件閲覧)
+      actions = `
+        <button class="btn ghost small" data-rec-detail="${r.id}">詳細</button>
+        <button class="btn ghost small" data-rec-action="${r.type}|${r.id}">本社アクション</button>
+      `;
+    }
+    return `
+      <div class="hq-rec-card" data-id="${r.id}">
+        <div class="rc-head">
+          <span class="rc-type ${r.type}">${_typeLabel(r.type)}</span>
+          ${_statusPill(cs)}
+        </div>
+        <div class="rc-meta">${sub}</div>
+        <div class="rc-amount">${yen(_recAmount(r))}</div>
+        <div class="rc-summary">${_recSummary(r)}</div>
+        ${revisionBlock}
+        ${_syncLabel(r.sheetsSyncStatus)}
+        <div class="rc-actions">${actions}</div>
+      </div>
+    `;
+  }
+  function _bindHqRecCards(root) {
+    root.querySelectorAll("[data-rec-detail]").forEach(b => {
+      b.addEventListener("click", (e) => { e.stopPropagation(); openDetail(b.dataset.recDetail); });
+    });
+    root.querySelectorAll("[data-rec-confirm]").forEach(b => {
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const [type, id] = b.dataset.recConfirm.split("|");
+        if (!confirm("この登録を確認済みにしますか？")) return;
+        confirmRecord(type, id);
+        toast("確認済みに変更しました");
+        renderAll();
+      });
+    });
+    root.querySelectorAll("[data-rec-revise]").forEach(b => {
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const [type, id] = b.dataset.recRevise.split("|");
+        openHQActionModal(type, id, "revise");
+      });
+    });
+    root.querySelectorAll("[data-rec-hold]").forEach(b => {
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const [type, id] = b.dataset.recHold.split("|");
+        if (!confirm("この登録を保留にしますか？")) return;
+        holdRecord(type, id);
+        toast("保留に変更しました");
+        renderAll();
+      });
+    });
+    root.querySelectorAll("[data-rec-action]").forEach(b => {
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const [type, id] = b.dataset.recAction.split("|");
+        openHQActionModal(type, id, "menu");
+      });
+    });
+  }
+
+  // 本社 仕入一覧
+  function renderHQPurchases() {
+    const list = getAllBusinessRecords().filter(r => r.type === "purchase")
+                 .sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const el = $("#hqPurchasesList"); if (!el) return;
+    if (!list.length) { el.innerHTML = `<div class="empty">仕入の登録はまだありません</div>`; return; }
+    el.innerHTML = list.map(r => _hqRecCard(r, "purchase")).join("");
+    _bindHqRecCards(el);
+  }
+  // 修正依頼一覧 (修正依頼 + 差戻し)
+  function renderHQRevisions() {
+    const list = getRevisionRequestRecords()
+                 .sort((a,b) => new Date(b.revisionRequestedAt || b.createdAt) - new Date(a.revisionRequestedAt || a.createdAt));
+    const el = $("#hqRevisionsList"); if (!el) return;
+    if (!list.length) { el.innerHTML = `<div class="empty">現在、修正依頼中・差戻し中のデータはありません</div>`; return; }
+    el.innerHTML = list.map(r => _hqRecCard(r, "revision")).join("");
+    _bindHqRecCards(el);
+  }
+  // 確認済み一覧
+  function renderHQConfirmed() {
+    const list = getRecordsByConfirmStatus("確認済み")
+                 .sort((a,b) => new Date(b.hqConfirmedAt || b.createdAt) - new Date(a.hqConfirmedAt || a.createdAt));
+    const el = $("#hqConfirmedList"); if (!el) return;
+    if (!list.length) { el.innerHTML = `<div class="empty">確認済みのデータはまだありません</div>`; return; }
+    el.innerHTML = list.map(r => _hqRecCard(r, "confirmed")).join("");
+    _bindHqRecCards(el);
+  }
+  // 保留一覧
+  function renderHQHolds() {
+    const list = getRecordsByConfirmStatus("保留")
+                 .sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const el = $("#hqHoldsList"); if (!el) return;
+    if (!list.length) { el.innerHTML = `<div class="empty">保留中のデータはありません</div>`; return; }
+    el.innerHTML = list.map(r => _hqRecCard(r, "hold")).join("");
+    _bindHqRecCards(el);
+  }
+  // 操作ログ
+  function renderHQOpLogs() {
+    const logs = loadOpLogs().slice().reverse(); // 新しい順
+    const el = $("#hqOpLogsList"); if (!el) return;
+    if (!logs.length) {
+      el.innerHTML = `<div class="oplog-empty">操作ログはまだありません</div>`;
+      return;
+    }
+    el.innerHTML = logs.map(l => `
+      <div class="oplog-row">
+        <span class="ol-when">${escapeHtml(fmtFullDate(l.timestamp))}</span>
+        ・ <span class="ol-op">${escapeHtml(l.operation)}</span>
+        ・ <span class="ol-type ${l.recordType}">${_typeLabel(l.recordType)}</span>
+        ・ ${escapeHtml(l.user)}
+        ${l.recordId ? ` / id=<small>${escapeHtml(l.recordId)}</small>` : ""}
+        ${l.content ? `<br><small>${escapeHtml(l.content)}</small>` : ""}
+      </div>
+    `).join("");
+  }
+
+  // 本社アクションモーダル (確認/修正依頼/保留/差戻し)
+  let _hqActionCtx = null; // { type, id }
+  function openHQActionModal(type, id, mode) {
+    const r = getRecordByTypeAndId(type, id);
+    if (!r) { toast("対象が見つかりません"); return; }
+    _hqActionCtx = { type, id };
+    const tg = $("#hqActionTarget");
+    if (tg) {
+      tg.innerHTML = `
+        <strong>${_typeLabel(type)}</strong> / ${escapeHtml(fmtDate(r.createdAt))}<br>
+        ${yen(_recAmount(r))}<br>
+        <small>${_recSummary(r)}</small>
+      `;
+    }
+    // クイック修正依頼理由
+    const reasons = [
+      "車両番号を確認してください",
+      "金額の根拠を確認してください",
+      "レシート画像が不鮮明です",
+      "経費科目を確認してください",
+      "支払方法を確認してください",
+      "仕入先名を確認してください"
+    ];
+    const qr = $("#hqReviseQuickReasons");
+    if (qr) qr.innerHTML = reasons.map(t => `<button type="button" class="qr-chip">${escapeHtml(t)}</button>`).join("");
+    if ($("#hqReviseText")) $("#hqReviseText").value = "";
+    if ($("#hqActionReviseForm")) $("#hqActionReviseForm").hidden = (mode !== "revise");
+    showModalEl($("#hqActionModal"));
+  }
+  function closeHQActionModal() {
+    _hqActionCtx = null;
+    if ($("#hqActionReviseForm")) $("#hqActionReviseForm").hidden = true;
+    hideModalEl($("#hqActionModal"));
+  }
+  function setupHQActionModal() {
+    if ($("#hqActionClose")) $("#hqActionClose").addEventListener("click", closeHQActionModal);
+    $("#hqActionModal") && $("#hqActionModal").addEventListener("click", (e) => {
+      if (e.target.id === "hqActionModal") closeHQActionModal();
+    });
+    document.querySelectorAll("#hqActionModal [data-hq-action]").forEach(b => {
+      b.addEventListener("click", () => {
+        if (!_hqActionCtx) return;
+        const { type, id } = _hqActionCtx;
+        const action = b.dataset.hqAction;
+        if (action === "confirm") {
+          if (!confirm("確認済みにしますか？")) return;
+          confirmRecord(type, id);
+          toast("確認済みに変更しました"); closeHQActionModal(); renderAll();
+        } else if (action === "hold") {
+          if (!confirm("保留にしますか？")) return;
+          holdRecord(type, id);
+          toast("保留に変更しました"); closeHQActionModal(); renderAll();
+        } else if (action === "revise" || action === "sendBack") {
+          // テキスト入力フォームを表示
+          $("#hqActionReviseForm").hidden = false;
+          $("#hqActionReviseForm").dataset.action = action;
+          if ($("#hqReviseText")) setTimeout(() => $("#hqReviseText").focus(), 50);
+        }
+      });
+    });
+    // クイック理由クリック
+    $("#hqReviseQuickReasons") && $("#hqReviseQuickReasons").addEventListener("click", (e) => {
+      if (!e.target.classList.contains("qr-chip")) return;
+      const cur = $("#hqReviseText").value || "";
+      $("#hqReviseText").value = cur ? cur + "\n" + e.target.textContent : e.target.textContent;
+      $("#hqReviseText").focus();
+    });
+    // キャンセル
+    $("#hqReviseCancel") && $("#hqReviseCancel").addEventListener("click", () => {
+      $("#hqActionReviseForm").hidden = true;
+      $("#hqReviseText").value = "";
+    });
+    // 確定
+    $("#hqReviseConfirm") && $("#hqReviseConfirm").addEventListener("click", () => {
+      if (!_hqActionCtx) return;
+      const { type, id } = _hqActionCtx;
+      const text = ($("#hqReviseText").value || "").trim();
+      if (!text) { toast("修正依頼内容を入力してください"); $("#hqReviseText").focus(); return; }
+      const action = $("#hqActionReviseForm").dataset.action || "revise";
+      if (action === "sendBack") sendBackRecord(type, id, text);
+      else                       reviseRecord(type, id, text);
+      toast(action === "sendBack" ? "差戻しに変更しました" : "修正依頼を送信しました");
+      closeHQActionModal();
+      renderAll();
+    });
   }
 
   // ================== 詳細モーダル ==================
@@ -3979,15 +4406,24 @@
     if (typeof closeStoreEditModal === "function") closeStoreEditModal();
   }
 
-  // 確認済みにする
+  // 確認済みにする (v3.18.1: 新フィールドも同期更新)
   function markConfirmed(id) {
     const r = records.find(x => x.id === id);
     if (!r) return;
     if (isLocked(r)) { toast("月次処理済みのため変更できません"); return; }
+    const now = new Date().toISOString();
     r.status = "確認済み";
-    r.approval = { at: new Date().toISOString(), note: "" };
+    r.confirmStatus = "確認済み";
+    r.hqConfirmedBy = "本社";
+    r.hqConfirmedAt = now;
+    r.hasRevisionRequest = false;
+    r.revisionRequestText = "";
+    r.revisionRequestedAt = "";
+    r.revisionRequestedBy = "";
+    r.approval = { at: now, note: "" };
     delete r.rejection;
     saveAll(records);
+    if (typeof appendOpLog === "function") appendOpLog("本社確認済み", r.type, r.id, "");
     closeAllModals();
     toast("確認済みに変更しました");
     renderAll();
@@ -4054,10 +4490,21 @@
         closeRejectModal();
         return;
       }
+      const now = new Date().toISOString();
+      // v3.18.1: 新フィールドも同期
       r.status = "修正依頼";
-      r.rejection = { at: new Date().toISOString(), note };
+      r.confirmStatus = "修正依頼";
+      r.hasRevisionRequest = true;
+      r.revisionRequestText = note;
+      r.revisionRequestedAt = now;
+      r.revisionRequestedBy = "本社";
+      r.rejection = { at: now, note };
+      r.rejectReason = note;
+      r.rejectedAt = now;
+      r.rejectedBy = "本社";
       delete r.approval;
       saveAll(records);
+      if (typeof appendOpLog === "function") appendOpLog("修正依頼作成", r.type, r.id, note);
       closeRejectModal();
       closeModal();
       toast("修正依頼を送信しました");
@@ -4076,11 +4523,33 @@
   function openStoreEditModal(id) {
     const r = records.find(x => x.id === id);
     if (!r) return;
-    if (r.status !== "修正依頼") {
-      toast("修正依頼中の登録のみ修正できます");
+    // v3.18.1: 修正依頼 + 差戻し を両方対象に
+    const s = _statusOf(r);
+    if (s !== "修正依頼" && s !== "差戻し") {
+      toast("修正依頼中・差戻し中の登録のみ修正できます");
       return;
     }
     storeEditingId = id;
+    // v3.18.1: 仕入の修正
+    if (r.type === "purchase") {
+      storeEditingDraft = {
+        type: "purchase",
+        date:       r.date || todayKey(),
+        vendor:     r.vendor || "",
+        productName: r.productName || "",
+        tireSize:   r.tireSize || "",
+        qty:        Number(r.qty) || 0,
+        unitPrice:  Number(r.unitPrice) || 0,
+        total:      Number(r.total) || 0,
+        paymentMethod: r.paymentMethod || "",
+        note:       r.note || ""
+      };
+      $("#storeEditTitle").textContent = "仕入の修正・再提出";
+      $("#storeEditBody").innerHTML = buildStoreEditPurchaseHtml(r);
+      bindStoreEditPurchaseForm();
+      showModalEl($("#storeEditModal"));
+      return;
+    }
     if (r.type === "sale") {
       storeEditingDraft = {
         type: "sale",
@@ -4386,6 +4855,61 @@
     });
   }
 
+  // ===== v3.18.1 (第2分割): 仕入 修正フォーム HTML =====
+  function buildStoreEditPurchaseHtml(r) {
+    const note = r.revisionRequestText || (r.rejection && r.rejection.note) || r.rejectReason || "（修正依頼コメントなし）";
+    return `
+      <div class="store-edit-comment">
+        <div class="sec-comment-label">⚠️ 本社からの修正依頼コメント</div>
+        <div class="sec-comment-text">${escapeHtml(note)}</div>
+      </div>
+      <div class="form-block"><label class="form-label">仕入日 <span class="req">*</span></label><input type="date" id="sePurDate" class="form-input" /></div>
+      <div class="form-block"><label class="form-label">仕入先 <span class="req">*</span></label><input type="text" id="sePurVendor" class="form-input" autocomplete="off" /></div>
+      <div class="form-block"><label class="form-label">商品名 <span class="req">*</span></label><input type="text" id="sePurProduct" class="form-input" autocomplete="off" /></div>
+      <div class="form-block"><label class="form-label">タイヤサイズ</label><input type="text" id="sePurTireSize" class="form-input" autocomplete="off" /></div>
+      <div class="grid-2">
+        <div><label class="form-label">数量</label><input type="text" id="sePurQty" class="form-input" inputmode="numeric" autocomplete="off" /></div>
+        <div><label class="form-label">単価</label><input type="text" id="sePurUnitPrice" class="form-input" inputmode="numeric" autocomplete="off" /></div>
+      </div>
+      <div class="form-block"><label class="form-label">仕入合計(税込) <span class="req">*</span></label><input type="text" id="sePurTotal" class="form-input" inputmode="numeric" autocomplete="off" /></div>
+      <div class="form-block">
+        <label class="form-label">支払方法 <span class="req">*</span></label>
+        <div class="payment-methods" id="sePurPayments" role="radiogroup">
+          <button type="button" class="pay-btn" data-pay="現金">現金</button>
+          <button type="button" class="pay-btn" data-pay="カード">カード</button>
+          <button type="button" class="pay-btn" data-pay="振込">振込</button>
+          <button type="button" class="pay-btn" data-pay="売掛">売掛</button>
+          <button type="button" class="pay-btn" data-pay="引落">引落</button>
+          <button type="button" class="pay-btn" data-pay="その他">その他</button>
+        </div>
+      </div>
+      <div class="form-block"><label class="form-label">備考</label><textarea id="sePurNote" class="form-input" rows="2"></textarea></div>
+    `;
+  }
+  function bindStoreEditPurchaseForm() {
+    const d = storeEditingDraft;
+    $("#sePurDate").value      = d.date || todayKey();
+    $("#sePurVendor").value    = d.vendor || "";
+    $("#sePurProduct").value   = d.productName || "";
+    $("#sePurTireSize").value  = d.tireSize || "";
+    $("#sePurQty").value       = d.qty || "";
+    $("#sePurUnitPrice").value = d.unitPrice || "";
+    $("#sePurTotal").value     = d.total || "";
+    $("#sePurNote").value      = d.note || "";
+    $("#sePurDate").addEventListener("input",      e => d.date         = e.target.value);
+    $("#sePurVendor").addEventListener("input",    e => d.vendor       = e.target.value);
+    $("#sePurProduct").addEventListener("input",   e => d.productName  = e.target.value);
+    $("#sePurTireSize").addEventListener("input",  e => d.tireSize     = e.target.value);
+    $("#sePurQty").addEventListener("input",       e => d.qty          = parseAmountInput(e.target.value));
+    $("#sePurUnitPrice").addEventListener("input", e => d.unitPrice    = parseAmountInput(e.target.value));
+    $("#sePurTotal").addEventListener("input",     e => d.total        = parseAmountInput(e.target.value));
+    $("#sePurNote").addEventListener("input",      e => d.note         = e.target.value);
+    renderPayButtons("#sePurPayments", d.paymentMethod, (val) => {
+      d.paymentMethod = val;
+      renderPayButtons("#sePurPayments", val);
+    });
+  }
+
   // ===== 修正して再提出 =====
   function submitStoreEdit() {
     if (!storeEditingId || !storeEditingDraft) return;
@@ -4418,6 +4942,21 @@
       const itemName = (r.productName || r.salesCategories[0] || "売上")
                      + (r.tireSize ? ` ${r.tireSize}` : "");
       r.items = [{ name: itemName, qty: r.qty, unitPrice: r.unitPrice }];
+    } else if (d.type === "purchase") {
+      // v3.18.1: 仕入の修正
+      if (!d.vendor)              { toast("仕入先を入力してください"); $("#sePurVendor").focus(); return; }
+      if (!d.productName)         { toast("商品名を入力してください"); $("#sePurProduct").focus(); return; }
+      if (!d.total || d.total <= 0) { toast("仕入合計を確認してください"); $("#sePurTotal").focus(); return; }
+      if (!d.paymentMethod)       { toast("支払方法を選択してください"); return; }
+      r.date = d.date;
+      r.vendor = d.vendor;
+      r.productName = d.productName;
+      r.tireSize = d.tireSize;
+      r.qty = Number(d.qty);
+      r.unitPrice = Number(d.unitPrice);
+      r.total = Number(d.total);
+      r.paymentMethod = d.paymentMethod;
+      r.note = d.note;
     } else {
       if (!d.amount || d.amount <= 0)        { toast("金額を入力してください"); $("#seExpenseAmount").focus(); return; }
       if (!d.vendor)                          { toast("購入先を入力してください"); $("#seExpenseVendor").focus(); return; }
@@ -4436,13 +4975,20 @@
       r.note      = d.note;
     }
 
-    // ステータスを「未確認」に戻す（修正依頼一覧から自動的に削除される）
+    // v3.18.1: ステータスを「未確認」に戻す + 新フィールド同期
+    const now = new Date().toISOString();
     r.status = "未確認";
-    r.resubmittedAt = new Date().toISOString();
+    r.confirmStatus = "未確認";
+    r.hasRevisionRequest = false;
+    r.revisionRequestText = "";
+    r.revisionHandledAt = now;
+    r.revisionHandledBy = "店舗";
+    r.resubmittedAt = now;
     delete r.rejection;
     delete r.approval;
 
     saveAll(records);
+    if (typeof appendOpLog === "function") appendOpLog("店舗修正保存", r.type, r.id, "");
     closeStoreEditModal();
     toast("修正内容を本社へ再提出しました");
     renderAll();
@@ -5137,6 +5683,7 @@
     setupPurchaseForm();             // v3.18.0 (第1分割): 仕入登録 入力
     setupPurchaseConfirm();          // v3.18.0 (第1分割): 仕入登録 確認
     setupMasterManagement();         // v3.18.0 (第1分割): マスタ管理 (顧客/商品/経費科目/支払方法)
+    setupHQActionModal();            // v3.18.1 (第2分割): 本社アクションモーダル
     setupRejectModal();
     setupImageZoomModal();
     setupCategoryChangeModal();

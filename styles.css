@@ -632,6 +632,91 @@ textarea.form-input { resize: vertical; }
 /* v3.18.0: 仕入アクション行 (店舗ホーム) */
 .action-row.purchase .ar-icon { background: #fff1e0; color: #b35a00; border-color: #f5cf9a; }
 
+/* v3.18.1 (第2分割): 本社 カード型リスト (未確認/修正依頼/確認済み/保留/仕入/操作ログ) */
+.hq-card-list {
+  display: flex; flex-direction: column; gap: 10px; margin-top: 12px;
+}
+.hq-rec-card {
+  background: #fff; border: 1px solid #e3e7ee; border-radius: 12px;
+  padding: 12px 14px; min-width: 0;
+}
+.hq-rec-card .rc-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 6px; flex-wrap: wrap;
+}
+.hq-rec-card .rc-type {
+  font-size: 11px; font-weight: 800; letter-spacing: 0.02em;
+  padding: 3px 9px; border-radius: 999px;
+}
+.hq-rec-card .rc-type.sale     { background: #e8f1ff; color: #0b3d91; border: 1px solid #b8d0f5; }
+.hq-rec-card .rc-type.expense  { background: #fff1ec; color: #c0322b; border: 1px solid #f7c8be; }
+.hq-rec-card .rc-type.purchase { background: #fff1e0; color: #b35a00; border: 1px solid #f5cf9a; }
+.hq-rec-card .rc-meta { font-size: 11.5px; color: #6b7488; }
+.hq-rec-card .rc-status {
+  font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 999px;
+}
+.hq-rec-card .rc-status.pending { background: #f4f6fa; color: #4b5365; border: 1px solid #d8dde6; }
+.hq-rec-card .rc-status.ok      { background: #e8f5ee; color: #0a7a4d; border: 1px solid #9be0b9; }
+.hq-rec-card .rc-status.warn    { background: #fff8e6; color: #6c4a00; border: 1px solid #f3d98a; }
+.hq-rec-card .rc-status.reject  { background: #fde5e9; color: #b3284a; border: 1px solid #f5b8c3; }
+.hq-rec-card .rc-status.hold    { background: #eef0ff; color: #3a3aa6; border: 1px solid #c9cdf5; }
+.hq-rec-card .rc-status.lock    { background: #ececec; color: #6b7488; border: 1px solid #c9cdd6; }
+.hq-rec-card .rc-amount {
+  font-size: 22px; font-weight: 900; color: #1a1f2c; margin: 4px 0;
+  word-break: break-all;
+}
+.hq-rec-card .rc-summary {
+  font-size: 13px; color: #2d3648; line-height: 1.55; word-break: break-all;
+}
+.hq-rec-card .rc-summary strong { font-weight: 800; }
+.hq-rec-card .rc-revision {
+  margin-top: 8px; padding: 8px 10px;
+  background: #fff8e6; border: 1px solid #f3d98a; border-radius: 8px;
+  font-size: 12px; color: #6c4a00; line-height: 1.5;
+}
+.hq-rec-card .rc-sync {
+  font-size: 11px; color: #8a92a3; margin-top: 4px;
+}
+.hq-rec-card .rc-sync.synced { color: #0a7a4d; }
+.hq-rec-card .rc-sync.failed { color: #b3284a; }
+.hq-rec-card .rc-actions {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
+}
+.hq-rec-card .rc-actions .btn { padding: 7px 12px; font-size: 12px; }
+
+/* 本社アクションモーダル */
+.hq-action-target {
+  background: #f4f6fa; border: 1px solid #e3e7ee; border-radius: 8px;
+  padding: 10px 12px; font-size: 13px; line-height: 1.55; margin-bottom: 12px;
+}
+.hq-action-buttons {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.hq-action-buttons .btn { width: 100%; padding: 12px; font-size: 14px; }
+.hq-action-revise-form { margin-top: 14px; padding-top: 14px; border-top: 1px dashed #d8dde6; }
+.quick-reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.quick-reasons .qr-chip {
+  background: #fff; border: 1px solid #d8dde6; border-radius: 999px;
+  padding: 5px 10px; font-size: 11.5px; cursor: pointer;
+}
+.quick-reasons .qr-chip:hover { background: #f1f5fc; border-color: #b8d0f5; }
+
+/* 操作ログ */
+.oplog-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.oplog-row {
+  background: #fff; border: 1px solid #e3e7ee; border-radius: 8px;
+  padding: 8px 10px; font-size: 12px; color: #2d3648; line-height: 1.55;
+}
+.oplog-row .ol-when  { color: #8a92a3; font-size: 11px; }
+.oplog-row .ol-op    { font-weight: 800; color: #0b3d91; }
+.oplog-row .ol-type.sale     { color: #0b3d91; }
+.oplog-row .ol-type.expense  { color: #c0322b; }
+.oplog-row .ol-type.purchase { color: #b35a00; }
+.oplog-empty {
+  text-align: center; font-size: 12px; color: #8a92a3; padding: 20px 0;
+  background: #fafbfd; border: 1px dashed #e3e7ee; border-radius: 10px;
+}
+
 /* v3.17.7: 開発者用要素 (本番では非表示)。dev-only クラス + body.dev-mode で開発時のみ表示 */
 .dev-only { display: none; }
 body.dev-mode .dev-only { display: block; }

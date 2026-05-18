@@ -2,7 +2,7 @@
 
 **吉田自動車工業 X-Changeタイヤ販売店舗向け プロトタイプ**
 
-> 補助金申請前 説明資料 兼 プロトタイプ仕様書 (v3.18.0 第1分割 / 店舗側スマホ画面整理・仕入登録・本日今月の状況・マスタ管理 追加版)
+> 補助金申請前 説明資料 兼 プロトタイプ仕様書 (v3.18.1 第2分割 / 本社確認・修正依頼・保留・差戻し・操作ログ フロー追加版)
 > **店舗側はスマートフォン操作 / 本社側はPC操作を想定。スマホでも本社側の確認が可能。**
 > **売上音声入力はスマホ標準キーボードのマイクを利用するため、音声認識API料金は不要です。**
 > **経費レシートOCRは Tesseract.js によるブラウザ内処理のためAPIキーは不要、画像は外部送信されません（v3.17）。**
@@ -129,8 +129,8 @@
 | 分割 | 範囲 | バージョン |
 |---|---|---|
 | **第1分割** ✅ | 店舗側スマホ画面整理・売上/経費/仕入の3登録・本日の状況・今月の状況・マスタ管理（顧客/商品/経費科目/支払方法）・Sheets送信状態の3レコード対応 | v3.18.0 |
-| 第2分割（予定） | 本社確認ステータスの詳細操作・修正依頼フローの完全実装・決算用集計画面 | 未着手 |
-| 第3分割（予定） | 操作ログ画面の完成・Google Sheets へのマスタ完全同期・権限管理（ログイン認証・店舗/本社/管理者ロール） | 未着手 |
+| **第2分割** ✅ | 本社確認・修正依頼・保留・差戻し フロー（5状態）・本社カード型未確認/修正依頼/確認済み/保留 一覧・本社仕入一覧・本社アクションモーダル（クイック修正依頼理由）・店舗側「対応済みにする」処理・仕入の修正再提出・操作ログ（簡易） | v3.18.1 |
+| 第3分割（予定） | 決算用集計画面の完成・操作ログ画面の高度化・Google Sheets への確認ステータス更新／マスタ完全同期・権限管理（ログイン認証・店舗/本社/管理者ロール） | 未着手 |
 
 #### 第1分割で追加された店舗側スマホ画面
 
@@ -210,6 +210,89 @@
 **支払方法** 初期値 7項目: 現金 / カード / QR決済 / 振込 / 売掛 / 引落 / その他
 
 両マスタとも、現段階ではマスタ管理画面で **閲覧のみ** （`PAYMENT_METHODS_MASTER` / `EXPENSE_CATEGORIES` 定数で管理）。第3分割で Google Sheets と完全同期予定。
+
+#### 第2分割で追加された本社確認・修正依頼フロー（v3.18.1）
+
+> 📌 **第2分割では、本社側で売上・経費・仕入の未確認データを確認し、確認済み・修正依頼・保留・差戻しに変更できる基礎フローを追加します。店舗側では、本社からの修正依頼を確認し、必要に応じて修正または対応済みにできます。現段階では確認ステータスと修正依頼はlocalStorage上で動作し、Google Sheetsへの確認ステータス更新は次フェーズで実装予定です。**
+
+**確認ステータス（5+1状態）**: 未確認 → 確認済み ／ 未確認 → 修正依頼 → 未確認（店舗修正後）／ 未確認 → 差戻し → 未確認（店舗対応後）／ 未確認 → 保留 →(再判断)→ 確認済み or 修正依頼 ／ 確認済み → 月次処理済み（既存）
+
+**追加された本社側メニュー**:
+
+| メニュー | 機能 |
+|---|---|
+| **未確認データ** | 全 type（売上/経費/仕入）の未確認レコードを4タブ（全て/売上/経費/仕入）で表示。各カードに [詳細] [✓ 確認済み] [✏️ 修正依頼] [⏸ 保留] の4アクションボタン |
+| **仕入一覧** | 全仕入レコード（type:"purchase"）の閲覧 |
+| **修正依頼一覧** | confirmStatus が「修正依頼」または「差戻し」のレコードを依頼日時降順で表示。再依頼可 |
+| **確認済み一覧** | confirmStatus が「確認済み」のレコードを確認日時降順で表示。本社アクションで状態変更可 |
+| **保留一覧** | confirmStatus が「保留」のレコードを表示。[✓ 確認済み] [✏️ 修正依頼] アクション付き |
+| **操作ログ** | 確認/修正依頼/保留/差戻し/店舗対応 の履歴を直近500件まで表示（localStorage `xchange.opLogs.v1`） |
+
+**本社アクションモーダル** (`#hqActionModal`):
+- 「✓ 確認済みにする」: 確認ダイアログ → 即更新
+- 「✏️ 修正依頼を出す」: テキスト入力フォーム展開 + クイック理由6種（車両番号/金額の根拠/レシート画像不鮮明/経費科目/支払方法/仕入先名）→ 確定で送信
+- 「⏸ 保留にする」: 確認ダイアログ → 即更新
+- 「↩ 差戻しにする」: 修正依頼と同じテキスト入力 → 確定で差戻し
+
+**レコード新規フィールド（v3.18.1）**:
+
+```javascript
+{
+  // 既存
+  status: "未確認" | "確認済み" | "修正依頼" | "差戻し" | "保留" | "月次処理済み",
+  // v3.18.1 新規 (status と同期)
+  confirmStatus:       "未確認" | "確認済み" | "修正依頼" | "差戻し" | "保留" | "月次処理済み",
+  hqConfirmedBy:       "" | "本社",
+  hqConfirmedAt:       "" | ISO 8601,
+  hasRevisionRequest:  false | true,
+  revisionRequestText: "",   // 本社→店舗 メッセージ
+  revisionRequestedAt: "",
+  revisionRequestedBy: "" | "本社",
+  // 店舗修正/対応済み記録
+  revisionHandledAt:   "",
+  revisionHandledBy:   "" | "店舗"
+}
+```
+
+既存レコードは `migrateRecord()` で自動マイグレートされ、`confirmStatus` 等が空の場合 `status` 値で補完されます（後方互換完全保持）。
+
+**共通ビジネスレコード ヘルパ（v3.18.1）**:
+
+```javascript
+getAllBusinessRecords()           // 売上/経費/仕入 全件
+getRecordByTypeAndId(type, id)    // type と id で一意取得
+updateRecordByTypeAndId(type, id, patch)  // patch 適用 + 自動保存 (confirmStatus/status 同期)
+getRecordsByConfirmStatus(status)  // confirmStatus でフィルタ
+getRevisionRequestRecords()       // 修正依頼 + 差戻し のみ
+```
+
+**アクションヘルパ（将来 Google Sheets action 名に対応）**:
+
+| ヘルパ関数 | 将来の Sheets action |
+|---|---|
+| `confirmRecord(type, id)` | `updateConfirmStatus` |
+| `reviseRecord(type, id, text)` | `addRevisionRequest` |
+| `holdRecord(type, id)` | `updateConfirmStatus` |
+| `sendBackRecord(type, id, text)` | `addRevisionRequest` |
+| `markStoreHandled(type, id)` | `markRevisionHandled` |
+
+**店舗側の修正依頼画面 (v3.18.1 改修)**:
+- 修正依頼 + **差戻し** を両方表示（依頼日時降順）
+- 売上/経費/仕入 3 type すべて対応
+- カードに 3 ボタン: [👁 内容を確認] [✏️ 修正する] [✓ 対応済みにする]
+- 「対応済みにする」: 修正不要時のショートカット — `confirmStatus: "未確認"` に戻し、`revisionHandledBy: "店舗"` を記録、本社の未確認一覧へ再表示
+- 仕入の修正フォームを新設（仕入日/仕入先/商品名/タイヤサイズ/数量/単価/仕入合計/支払方法/備考）
+
+**操作ログ (簡易・localStorage)**:
+- キー: `xchange.opLogs.v1`
+- 項目: id / timestamp / operation / user (本社 or 店舗) / recordType / recordId / content / result
+- 対象操作: 本社確認済み / 修正依頼作成 / 保留 / 差戻し / 店舗修正保存 / 店舗対応済み
+- 直近 500 件まで保持（FIFO で自動削除）
+
+**Google Sheets 連携の現状（v3.18.1 注記）**:
+> 第2分割では、本社確認・修正依頼フローはlocalStorage上で動作します。Google Sheetsへの確認ステータス更新は次フェーズで実装予定です。
+>
+> 将来追加予定の Apps Script action: `updateConfirmStatus` / `addRevisionRequest` / `markRevisionHandled`
 
 #### 第1分割で行わなかったこと
 
@@ -1303,6 +1386,7 @@ X-change/
 | v3.17.2 | OCR結果の安全な扱いを徹底。OCR全文を「内容」欄や「金額」欄にそのまま流し込まないようにし、専用の `extractAmountFromReceipt()` `extractTaxFromReceipt()` `extractVendorFromReceipt()` `extractPaymentFromReceipt()` `summarizeReceiptContent()` を新規実装。金額抽出を **キーワード優先 7段階**（総合計/合計（税込）/税込合計 → お支払金額/請求金額 → 合計（小計を除外・最後の出現） → 税込 → クレジット支払 → 現金/お預り → ¥/円マーク付き数字の最大値）に再構成し、税率（8/10）・電話番号・伝票番号・50円未満のノイズ数字を採用しない。消費税は `消費税等` / `税額` / `内消費税` / `消費税(8%)` / `消費税(10%)` キーワード直近のみ採用。内容欄には OCR 全文ではなく **短い要約**（「ガソリン代」「<購入先>購入分」「レシート内容 要確認」等）のみを入れる。低信頼度時は AI経費科目の自動選択をスキップし、確認画面に **「⚠ OCRの読み取り精度が低いため、金額・購入先・経費科目を手入力してください。」** バナーを表示。経費登録/上り/確認画面に常時 **「ブラウザOCRはレシートの角度・明るさ・文字の小ささにより誤認識する場合があります」** の注意書きを追加。Safari 16.3 以前の lookbehind 非対応環境でも壊れないよう正規表現を分割。購入先候補に 7&i / オートバックス / イエローハット / イオン / ヨーカドー / ライフ を追加。 |
 | v3.17.3 | 開発領域を **3領域に分割管理**（領域A: 売上音声入力・店舗側操作 ／ 領域B: 経費OCR・AI分類 ／ 領域C: 本社確認・月次集計・権限管理）。README §4-3 に領域分割の趣旨・対象機能・主なファイル位置・領域間依存関係・修正時チェックリストを明記。`app.js` 冒頭ヘッダコメントと主要セクション境界（AI音声パーサ層 / 経費パーサ・OCR抽出器 / 共通基盤 / 領域A店舗UI / 領域B経費UI / 領域C本社UI）に `▼▼▼ 領域X: ... ▼▼▼` / `▲▲▲ 領域X: ... (END) ▲▲▲` ディバイダコメントを追加。コードロジックは無変更。経費OCR修正時に売上音声入力を、本社機能修正時に店舗機能を、それぞれ壊さないための保守ガードを文書化。 |
 | v3.17.4 | **Google スプレッドシート連携** を追加（Apps Script Web App 経由・APIキー不要・Google Cloud 設定不要）。`XCHANGE_SHEETS_CONFIG` 定数（enabled / endpoint / token）と `sendSaleToSheets()` 共通ヘルパを実装。売上「確認して登録」押下時、localStorage 保存後に fire-and-forget で `action: "addSale"` を Apps Script へ POST。payload は 18項目（saleDate / storeName / staffName / customerName / sellerName / saleCategory / productName / tireSize / quantity / unitPrice / totalAmount / paymentMethod / carModel / carNumber / workContent / memo / overseasSale / confirmStatus）。各売上レコードに `sheetsSyncStatus` (`pending`/`synced`/`failed`) を追加。送信成功/失敗時にそれぞれ「Googleスプレッドシートへ登録しました」「Googleスプレッドシートへの送信に失敗しました。ローカルには登録されています。」をトースト表示。CORS preflight 回避のため `Content-Type: text/plain` で送信。送信失敗時も localStorage 保存・店舗側/本社側 売上一覧・月次集計・CSV出力は通常通り動作（既存機能を壊さない）。詳細は §10-1。 |
+| v3.18.1 | **第2分割: 本社確認・修正依頼・保留・差戻し フロー追加**。確認ステータスを 5+1 状態に拡張（未確認/確認済み/修正依頼/**差戻し**/**保留**/月次処理済み）。レコードに `confirmStatus` / `hqConfirmedBy` / `hqConfirmedAt` / `hasRevisionRequest` / `revisionRequestText` / `revisionRequestedAt` / `revisionRequestedBy` / `revisionHandledAt` / `revisionHandledBy` の9フィールドを追加し、`migrateRecord()` で既存データを後方互換マイグレート。本社サイドバーに **仕入一覧 / 修正依頼一覧 / 確認済み一覧 / 保留一覧 / 操作ログ** の5タブを追加（既存タブは無変更）。未確認データタブに「仕入」フィルタを追加（全て/売上/経費/仕入の4タブ）。各カードに [詳細] [✓ 確認済み] [✏️ 修正依頼] [⏸ 保留] の4アクションボタンを統一実装。本社アクションモーダル `#hqActionModal` を新設し、修正依頼/差戻し時のテキスト入力 + クイック理由6種（車両番号/金額/レシート/経費科目/支払方法/仕入先名）。共通ヘルパ `getAllBusinessRecords / getRecordByTypeAndId / updateRecordByTypeAndId / getRecordsByConfirmStatus / getRevisionRequestRecords` を新設。アクションヘルパ `confirmRecord / reviseRecord / holdRecord / sendBackRecord / markStoreHandled` を新設（将来 Sheets action `updateConfirmStatus` / `addRevisionRequest` / `markRevisionHandled` に対応する命名）。店舗側「本社からの修正依頼」画面を改修: 修正依頼 + **差戻し** を両方表示、売上/経費/**仕入**の3 type 対応、各カードに [👁 内容を確認] [✏️ 修正する] [✓ 対応済みにする] の3ボタン。仕入の修正再提出フォームを新設。「対応済みにする」(`markStoreHandled`) は修正不要時のショートカット — `confirmStatus: "未確認"` に戻し本社へ再送、`revisionHandledBy: "店舗"` を記録。操作ログ（簡易・localStorage `xchange.opLogs.v1`）を新設 — 本社確認/修正依頼/保留/差戻し/店舗修正保存/店舗対応済み の6種を直近500件まで記録。サイドバー badge を3つ（未確認/修正依頼/保留）に拡張、店舗ホームの「修正依頼」件数に差戻しも含める。既存の Google Sheets 送信 / localStorage 保存 / 店舗側登録フロー / 本日今月の状況 / マスタ管理 / 月次集計 / CSV出力 / スマホ表示 は全て無変更。Google Sheets への確認ステータス更新は次フェーズで実装予定。 |
 | v3.18.0 | **第1分割: 店舗側スマホ画面整理 + 仕入登録 + 本日/今月の状況 + マスタ管理**。店舗ホームのメニューを 7枚に再編 (売上を登録 / 経費を登録 / **仕入を登録** / **本日の状況** / **今月の状況** / 本日の売上一覧 / 本日の経費一覧 / 本社からの修正依頼 / **マスタ管理**)。新規画面: `store-today-status` (6カード: 売上/経費/仕入/概算粗利益/未確認/修正依頼)、`store-month-status` (月初〜本日の累計 6カード + 件数表示)、`store-purchase-upload` / `store-purchase-confirm` / `store-purchase-done` (仕入登録フロー — 仕入日/仕入先/商品名/タイヤサイズ/数量/単価/仕入合計/支払方法/備考)、`store-master` (顧客/商品/経費科目/支払方法の4タブ)。仕入レコード (type:"purchase") を records 配列に追加し、`sendPurchaseToSheets()` で **03_仕入明細** へ送信（`sheetsSyncStatus` pending/synced/failed トラッキング）。顧客マスタ (`xchange.customers.v1`) と商品マスタ (`xchange.products.v1`) を localStorage で管理し、CRUD UI 完備。売上「お客様名」欄に `<datalist id="customerSuggestList">` を実装し、顧客選択時に車種/車両番号/タイヤサイズを自動補完（空欄時のみ）。売上登録時に `_bumpCustomerOnSale()` で最終来店日・累計売上を自動更新。未登録顧客の自動マスタ追加は行わず、トーストで案内のみ（大量登録防止）。仕入の商品名欄にも `<datalist>` 候補、選択時にタイヤサイズ/標準仕入単価/数量×単価=合計 を自動補完。`PAYMENT_METHODS_MASTER = ["現金","カード","QR決済","振込","売掛","引落","その他"]` を統合定義。`EXPENSE_CATEGORIES` に **水道光熱費** を追加 (12→13項目)。既存の売上音声入力 / AI分解 / 売上登録前確認 / 経費OCR登録 / 経費手入力登録 / Google Sheets送信 / localStorage保存 / 本日経費サマリー / 月次集計 / 本社側経費一覧 / 修正依頼 / CSV出力 / スマホ表示は **全て無変更**。本社側の決算用集計・操作ログ・マスタ完全同期は第2/第3分割で対応予定。 |
 | v3.17.8 | 経費登録を **OCRモード / 手入力モード** の 2系統に分離。経費レシート登録画面の最初に「① レシートをOCRで読み取る」「② 手入力で登録する」のモード選択カードを表示し、選択後にそれぞれのフォームへ遷移。**手入力モード**: 経費日 / 購入先 / 内容 / 金額（税込）/ 消費税 / 支払方法 / 経費科目 / レシート画像（任意添付）/ 備考 の入力フォーム。OCR推定値・サンプル経費・サンプルOCRテキストを **一切使用しない**（コードで明示的に `_expenseMode === "manual"` を分岐し、`ocrText = ""` / `ocrSource = "manual"` / `source = "manual"` を強制）。手入力モードでも登録前確認画面を必ず通り、確認画面の DOM 入力値で `finalExpenseRecord` を組み立て localStorage 保存と `sendExpenseToSheets()` の両方に使用（v3.17.6 の手入力最優先ロジックを継承）。確認画面では OCR読取結果カードが ocrText 空時に自動非表示。手入力レコードは `[Expense Manual] final expense record` / `[Sheets] addExpense sending` (`source: "manual"`) でデバッグログ出力。**OCRモード**: 既存挙動を維持（実OCR / サンプルOCR / メモ / 空 の 4系統＋ユーザー手修正最優先）。背面カメラ起動・進捗バー・OCR原文編集・AI分類候補・低信頼度バナーは全て継続動作。レシート画像は両モードとも `receiptDataUrl` (base64) として保存・送信（外部URL化は次フェーズ）。既存機能（売上登録 / 売上 Sheets 送信 / 経費 localStorage 保存 / 経費 Sheets 送信 / 本日経費サマリー / 月次集計 / 本社側経費一覧 / 修正依頼 / スマホ表示）は全て無変更。 |
 | v3.17.7 | **本番画面のクリーンアップ**。本番運用では、サンプルOCR・デバッグ表示・固定サンプル値は表示しません。売上入力は項目テンプレートのみを表示し、経費登録はOCR読取または手入力登録を選択する方式とします。**売上音声入力画面**: 固定サンプル例 12項目（「お客様名:高橋様」「タイヤサイズ:195/65R15」等）と「💡 おすすめの話し方」見出しを削除し、説明文「項目名に続けて、短く区切って話してください。話し終わったら内容を確認し、必要に応じて手で修正してください。」のみ残す。「📋 サンプル音声を入れる」ボタンを削除（テンプレート投入ボタンは保持）。**経費レシート登録画面**: ① レシートをOCRで読み取る / ② 手入力で登録する の 2 ルートを見出しで明示。biz-note を「OCRは補助機能です。金額や購入先が間違う場合があります。手入力で登録する場合は、入力した内容がそのまま登録されます。」に差し替え。「📋 サンプル経費テキストを入れる」ボタンと、画面下部の OCR デバッグ表示（OCR source / text length / detected vendor / detected total amount / detected category）を削除。「サンプルレシートから選ぶ」グリッドは `.dev-only` クラスで本番非表示化（`body.dev-mode` で開発時のみ表示可能）。アクションバー上の「画像をアップロードした場合は実OCR読取、サンプルレシートを選んだ場合は…」案内も削除。既存機能（売上音声入力 / AI分解 / 売上登録前確認 / 経費OCR登録 / 経費手入力登録 / Google Sheets 送信 / localStorage 保存 / 本社側・店舗側一覧 / 月次集計 / スマホ表示）は全て無変更。 |
